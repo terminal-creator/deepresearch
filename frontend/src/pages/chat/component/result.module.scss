@@ -1,0 +1,402 @@
+.chat-message-result {
+  .chat-message-result__think {
+    margin-top: 10px;
+    color: #8b8b8b;
+    border-left: 2px solid #e5e5e5;
+    margin-left: 10px;
+    padding-left: 10px;
+    margin-bottom: 10px;
+  }
+  .chat-message-result__md {
+    :global {
+      .refrence-token {
+        color: var(--ant-color-primary);
+        font-weight: bold;
+      }
+    }
+  }
+}
+
+.chat-message-result__source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+
+  .item {
+    background-color: #f4fafa;
+    border-radius: 12px;
+    padding: 20px;
+    box-sizing: border-box;
+    overflow: hidden;
+    cursor: pointer;
+    transition: background-color 0.3s ease-in-out;
+
+    &:hover {
+      background-color: #e1e7e7;
+    }
+
+    flex-basis: calc(50% - 12px);
+
+    @media (max-width: 768px) {
+      flex-basis: 100%;
+    }
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    .id {
+      flex-shrink: 0;
+      color: var(--ant-color-primary);
+      font-weight: bold;
+    }
+
+    .icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+    }
+
+    .url {
+      min-width: 0;
+      font-size: 14px;
+      font-weight: bold;
+      color: #6f798b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  .title {
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #3079f8;
+  }
+
+  .content {
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #6f798b;
+    -webkit-line-clamp: 3;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-height: 14px * 1.5 * 3;
+  }
+}
+
+.chat-message-result__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+
+  .item {
+    border: 1px solid #dce3ea;
+    box-sizing: border-box;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform 0.3s ease-in-out;
+
+    &:hover {
+      transform: scale(1.06);
+    }
+
+    flex-basis: calc(25% - 12px);
+    overflow: hidden;
+
+    @media (max-width: 768px) {
+      flex-basis: calc(50% - 12px);
+    }
+  }
+
+  .box {
+    height: 0;
+    padding-bottom: 55.94%;
+    position: relative;
+
+    .cover {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+}
+
+.chat-message-result__thinks {
+  margin-top: 10px;
+  margin-bottom: 20px;
+  color: #888;
+  .chat-message-result__thinks-item {
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #303d4f;
+
+      .header-icon {
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 12px;
+        background-color: #95c5ed;
+
+        &.thinking {
+          background-color: #2861e7;
+        }
+      }
+    }
+
+    .thinks-results {
+      border-left: 1px solid #95c5ed;
+      margin: 6px 0;
+      margin-left: 10px;
+      padding: 9px 0;
+      padding-left: 16px;
+
+      .thinks-results__item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+
+        .content {
+          overflow: hidden;
+        }
+
+        .count {
+          flex-shrink: 0;
+        }
+      }
+    }
+  }
+}
+
+// ReAct 智能推理过程样式
+.react-process {
+  margin: 16px 0;
+  padding: 16px;
+  background: linear-gradient(135deg, #f8f9ff 0%, #f0f5ff 100%);
+  border-radius: 12px;
+  border: 1px solid #d6e4ff;
+}
+
+.react-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1677ff;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #d6e4ff;
+}
+
+.react-step {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  animation: fadeInUp 0.3s ease-out;
+  transition: all 0.2s ease;
+
+  &--plan {
+    background: linear-gradient(135deg, #f9f0ff 0%, #efdbff 100%);
+    border: 1px solid #d3adf7;
+  }
+
+  &--thought {
+    background: linear-gradient(135deg, #fffbe6 0%, #fff7cc 100%);
+    border: 1px solid #ffe58f;
+  }
+
+  &--action {
+    background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+    border: 1px solid #91d5ff;
+  }
+
+  &--observation {
+    background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%);
+    border: 1px solid #b7eb8f;
+  }
+
+  &--clickable {
+    cursor: pointer;
+
+    &:hover {
+      transform: translateX(4px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+  }
+}
+
+.react-step-detail-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: #1677ff;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+
+  .react-step--clickable:hover & {
+    opacity: 1;
+  }
+}
+
+.react-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.react-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 55px;
+  height: 22px;
+  padding: 0 10px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+}
+
+.react-step-icon {
+  font-size: 16px;
+}
+
+.react-step-label {
+  font-weight: 600;
+  font-size: 14px;
+
+  .react-step--plan & {
+    color: #531dab;
+  }
+
+  .react-step--thought & {
+    color: #8c6d1f;
+  }
+
+  .react-step--action & {
+    color: #096dd9;
+  }
+
+  .react-step--observation & {
+    color: #389e0d;
+  }
+}
+
+.react-step-tool {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  background: rgba(22, 119, 255, 0.1);
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  color: #1677ff;
+}
+
+.react-step-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #333;
+  word-break: break-word;
+
+  .react-step--plan & {
+    color: #531dab;
+  }
+
+  .react-step--thought & {
+    color: #8c6d1f;
+  }
+
+  .react-step--action & {
+    color: #096dd9;
+  }
+
+  .react-step--observation & {
+    color: #389e0d;
+  }
+}
+
+.react-step-params {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 150px;
+  overflow-y: auto;
+  color: #333;
+}
+
+// 数据洞察样式
+.data-insights {
+  margin: 16px 0;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e8f4ff 100%);
+  border-radius: 12px;
+  border: 1px solid #d4e8ff;
+}
+
+.insights-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1677ff;
+  margin-bottom: 12px;
+}
+
+.insights-list {
+  margin: 0;
+  padding-left: 20px;
+
+  li {
+    color: #333;
+    font-size: 13px;
+    line-height: 1.8;
+    margin-bottom: 4px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    &::marker {
+      color: #1677ff;
+    }
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

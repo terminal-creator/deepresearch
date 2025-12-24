@@ -1,0 +1,34 @@
+.chat-page {
+  padding: 28px 40px;
+  margin: 0 auto;
+  display: flex;
+  gap: 24px;
+
+  .chat-page__header {
+    text-align: center;
+    font-weight: bold;
+    font-size: 18px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+
+    .chat-page__header-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+.research-process-container {
+  flex-shrink: 0;
+  width: 280px;
+  position: sticky;
+  top: 20px;
+  align-self: flex-start;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding: 16px;
+}
