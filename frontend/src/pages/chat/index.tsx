@@ -14,8 +14,7 @@ import ChatMessage from './component/chat-message'
 import Drawer from './component/drawer'
 import Source from './component/source'
 import StepDetailPanel, { StepDetailData } from './component/step-detail-panel'
-import ResearchProcess, { ResearchStep } from './component/research-process'
-import ResearchDetail, { ResearchDetailData } from './component/research-detail'
+import ResearchDetail, { ResearchDetailData, ResearchStep } from './component/research-detail'
 import styles from './index.module.scss'
 import { createChatId, createChatIdText, transportToChatEnter } from './shared'
 
@@ -50,8 +49,14 @@ export default function Index() {
 
   // 研究过程状态 (新版)
   const [researchSteps, setResearchSteps] = useState<ResearchStep[]>([])
+  const researchStepsRef = useRef<ResearchStep[]>([])  // 保持最新引用，供事件处理器使用
   const [selectedResearchDetail, setSelectedResearchDetail] = useState<ResearchDetailData | null>(null)
   const researchDetailsRef = useRef<Map<string, ResearchDetailData>>(new Map())
+
+  // 同步 researchSteps 到 ref
+  useEffect(() => {
+    researchStepsRef.current = researchSteps
+  }, [researchSteps])
 
   // 附件状态管理
   const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
@@ -277,39 +282,61 @@ export default function Index() {
               const stepId = content.step_id || `step_${Date.now()}`
               const stepType = content.step_type as ResearchStep['type']
 
+              // 转换 stats 从 snake_case 到 camelCase
+              const rawStats = content.stats || {}
+              const stats = {
+                resultsCount: rawStats.results_count,
+                chartsCount: rawStats.charts_count,
+                entitiesCount: rawStats.entities_count,
+                sectionsCount: rawStats.sections_count,
+                wordCount: rawStats.word_count,
+                questionsCount: rawStats.questions_count,
+                sourcesCount: rawStats.sources_count,
+                referencesCount: rawStats.references_count,
+              }
+
               setResearchSteps(prev => {
                 const existing = prev.find(s => s.type === stepType)
+                let newSteps: ResearchStep[]
                 if (existing) {
                   // 更新现有步骤
-                  return prev.map(s => s.type === stepType ? {
+                  newSteps = prev.map(s => s.type === stepType ? {
                     ...s,
                     id: stepId,
                     status: content.status,
-                    stats: content.stats,
+                    stats,
                   } : s)
                 } else {
                   // 添加新步骤
-                  return [...prev, {
+                  newSteps = [...prev, {
                     id: stepId,
                     type: stepType,
                     title: content.title || stepType,
                     subtitle: content.subtitle || '',
                     status: content.status || 'running',
-                    stats: content.stats,
+                    stats,
                   }]
                 }
+                // 同步更新 ref，确保后续事件能立即访问
+                researchStepsRef.current = newSteps
+                return newSteps
               })
 
               // 初始化详情数据
               if (!researchDetailsRef.current.has(stepId)) {
-                researchDetailsRef.current.set(stepId, {
+                const newDetail: ResearchDetailData = {
                   stepId,
                   stepType,
                   title: content.title || stepType,
                   subtitle: content.subtitle,
                   searchResults: [],
                   charts: [],
-                })
+                }
+                researchDetailsRef.current.set(stepId, newDetail)
+                // 自动选中新的步骤详情（特别是 searching 步骤）
+                if (stepType === 'searching' || content.status === 'running') {
+                  setSelectedResearchDetail({ ...newDetail })
+                }
               }
             }
 
@@ -317,19 +344,33 @@ export default function Index() {
             if (json.type === 'search_results') {
               const content = json.content || json
               const results = content.results || []
-              // 找到最近的 searching 步骤
-              const searchingStep = researchSteps.find(s => s.type === 'searching')
+              const isIncremental = content.isIncremental || false
+              // 找到最近的 searching 步骤（使用 ref 获取最新状态）
+              const currentSteps = researchStepsRef.current
+              const searchingStep = currentSteps.find(s => s.type === 'searching')
               if (searchingStep) {
                 const detail = researchDetailsRef.current.get(searchingStep.id)
                 if (detail) {
-                  detail.searchResults = results.map((r: any, i: number) => ({
-                    id: r.id || `sr_${i}`,
+                  const newResults = results.map((r: any, i: number) => ({
+                    id: r.id || `sr_${Date.now()}_${i}`,
                     title: r.title,
                     source: r.source,
                     date: r.date,
                     url: r.url,
                     snippet: r.snippet,
                   }))
+                  // 增量模式：累加结果；否则替换
+                  if (isIncremental && detail.searchResults) {
+                    detail.searchResults = [...detail.searchResults, ...newResults]
+                  } else {
+                    detail.searchResults = newResults
+                  }
+                  // 更新步骤统计
+                  setResearchSteps(prev => prev.map(s =>
+                    s.id === searchingStep.id
+                      ? { ...s, stats: { ...s.stats, resultsCount: detail.searchResults?.length || 0 } }
+                      : s
+                  ))
                   // 自动选中
                   setSelectedResearchDetail({ ...detail })
                 }
@@ -340,8 +381,9 @@ export default function Index() {
             if (json.type === 'knowledge_graph') {
               const content = json.content || json
               const graph = content.graph || content
-              // 找到最近的 analyzing 步骤或 searching 步骤
-              const targetStep = researchSteps.find(s => s.type === 'analyzing') || researchSteps.find(s => s.type === 'searching')
+              // 找到最近的 analyzing 步骤或 searching 步骤（使用 ref）
+              const currentSteps = researchStepsRef.current
+              const targetStep = currentSteps.find(s => s.type === 'analyzing') || currentSteps.find(s => s.type === 'searching')
               if (targetStep) {
                 const detail = researchDetailsRef.current.get(targetStep.id)
                 if (detail) {
@@ -359,8 +401,9 @@ export default function Index() {
             if (json.type === 'charts') {
               const content = json.content || json
               const charts = content.charts || []
-              // 找到 analyzing 步骤
-              const analyzingStep = researchSteps.find(s => s.type === 'analyzing')
+              // 找到 analyzing 步骤（使用 ref）
+              const currentSteps = researchStepsRef.current
+              const analyzingStep = currentSteps.find(s => s.type === 'analyzing')
               if (analyzingStep) {
                 const detail = researchDetailsRef.current.get(analyzingStep.id)
                 if (detail) {
@@ -392,6 +435,8 @@ export default function Index() {
                 analyzing: '📊 分析阶段',
                 writing: '✍️ 写作阶段',
                 reviewing: '🔎 审核阶段',
+                re_researching: '🔄 补充搜索',
+                rewriting: '📝 重写阶段',
                 revising: '📝 修订阶段',
               }
               target.reactSteps.push({
@@ -400,6 +445,34 @@ export default function Index() {
                 content: `${phaseLabels[json.phase] || json.phase}: ${extractContent(json.content)}`,
                 timestamp: Date.now(),
               })
+
+              // 同时更新研究步骤条 - 映射 phase 到 step_type
+              const phaseToStepType: Record<string, ResearchStep['type']> = {
+                writing: 'writing',
+                reviewing: 'reviewing',
+                re_researching: 're_researching',
+                rewriting: 'revising',
+                revising: 'revising',
+              }
+              const stepType = phaseToStepType[json.phase]
+              if (stepType) {
+                const stepId = `step_${json.phase}_${Date.now()}`
+                setResearchSteps(prev => {
+                  const existing = prev.find(s => s.type === stepType)
+                  if (!existing) {
+                    const newSteps = [...prev, {
+                      id: stepId,
+                      type: stepType,
+                      title: phaseLabels[json.phase] || json.phase,
+                      subtitle: extractContent(json.content) || '',
+                      status: 'running' as const,
+                    }]
+                    researchStepsRef.current = newSteps
+                    return newSteps
+                  }
+                  return prev
+                })
+              }
             }
 
             // V2 大纲事件
@@ -431,9 +504,22 @@ export default function Index() {
 
             // V2 研究完成事件
             if (json.type === 'research_complete') {
+              console.log('研究完成事件:', json)
               // 设置最终报告为内容
               if (json.final_report) {
                 target.content = json.final_report
+                console.log('设置报告内容，长度:', json.final_report.length)
+
+                // 同时存储到研究详情中供"过程报告"tab显示
+                const currentSteps = researchStepsRef.current
+                const writingStep = currentSteps.find(s => s.type === 'writing' || s.type === 'generating')
+                if (writingStep) {
+                  const detail = researchDetailsRef.current.get(writingStep.id)
+                  if (detail) {
+                    detail.streamingReport = json.final_report
+                    setSelectedResearchDetail({ ...detail })
+                  }
+                }
               }
               // 设置引用
               if (json.references && json.references.length > 0) {
@@ -445,6 +531,9 @@ export default function Index() {
                   source: ref.source_type === 'local' ? 'knowledge' : 'web',
                 }))
               }
+
+              // 标记所有研究步骤为完成
+              setResearchSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })))
             }
 
             // 检测 ReAct 模式
@@ -588,6 +677,13 @@ export default function Index() {
                 content: `📝 研究报告撰写完成\n字数: ${content.word_count || 0}\n引用数: ${content.references_count || 0}`,
                 timestamp: Date.now(),
               })
+
+              // 标记写作步骤完成
+              setResearchSteps(prev => prev.map(s =>
+                s.type === 'writing' || s.type === 'generating'
+                  ? { ...s, status: 'completed' as const }
+                  : s
+              ))
             } else if (json.type === 'review') {
               // V2 审核反馈事件
               if (!target.reactSteps) {
@@ -595,12 +691,20 @@ export default function Index() {
               }
               const content = json.content || json
               const score = content.quality_score || 0
+              const passed = content.passed || content.verdict === 'pass' || score >= 7
               target.reactSteps.push({
                 step: target.reactSteps.length + 1,
                 type: 'thought',
-                content: `🔍 审核结果: 质量评分 ${score}/10\n${content.passed ? '✅ 审核通过' : '⚠️ 需要修订'}`,
+                content: `🔍 审核结果: 质量评分 ${score}/10\n${passed ? '✅ 审核通过' : '⚠️ 需要修订'}`,
                 timestamp: Date.now(),
               })
+
+              // 更新审核步骤状态
+              setResearchSteps(prev => prev.map(s =>
+                s.type === 'reviewing'
+                  ? { ...s, status: passed ? 'completed' as const : 'running' as const }
+                  : s
+              ))
             } else if (json.type === 'revision_complete') {
               // V2 修订完成事件
               if (!target.reactSteps) {
@@ -811,16 +915,18 @@ export default function Index() {
     }
   }, [])
 
-  // 判断是否在深度研究模式
-  const isDeepResearchMode = currentChatItem?.type === ChatType.Deepsearch && researchSteps.length > 0
+  // 判断是否在深度研究模式（只要是 Deepsearch 类型就启用宽布局）
+  const isDeepResearchMode = currentChatItem?.type === ChatType.Deepsearch
 
   // 确定右侧面板显示内容
   const rightPanelContent = useMemo(() => {
-    // 新版: 如果有研究步骤，显示新的详情面板
+    // 新版: 深度研究模式，显示研究详情面板
     if (isDeepResearchMode) {
       return (
         <ResearchDetail
           data={selectedResearchDetail}
+          steps={researchSteps}
+          onStepClick={handleResearchStepClick}
           onClose={() => setSelectedResearchDetail(null)}
         />
       )
@@ -838,7 +944,7 @@ export default function Index() {
       )
     }
     return null
-  }, [currentChatItem, selectedStepDetail, isDeepResearchMode, selectedResearchDetail])
+  }, [currentChatItem, selectedStepDetail, isDeepResearchMode, selectedResearchDetail, researchSteps, handleResearchStepClick])
 
   return (
     <ComPageLayout
@@ -854,18 +960,9 @@ export default function Index() {
         </>
       }
       right={rightPanelContent}
+      wideRight={isDeepResearchMode}
     >
       <div className={styles['chat-page']}>
-        {/* 深度研究模式：左侧显示研究过程 */}
-        {isDeepResearchMode && (
-          <div className={styles['research-process-container']}>
-            <ResearchProcess
-              steps={researchSteps}
-              selectedStepId={selectedResearchDetail?.stepId}
-              onStepClick={handleResearchStepClick}
-            />
-          </div>
-        )}
         <ChatMessage list={list} onSend={send} onStepClick={handleStepClick} />
       </div>
     </ComPageLayout>

@@ -131,12 +131,36 @@ class CodeWizard(BaseAgent):
         'collections', 're'
     }
 
-    # 禁止的操作
+    # 禁止的操作（使用正则表达式匹配）
     FORBIDDEN_PATTERNS = [
-        'import os', 'import sys', 'import subprocess',
-        'open(', 'exec(', 'eval(', '__import__',
-        'requests', 'urllib', 'socket', 'shutil',
-        'pathlib', 'glob', 'pickle'
+        r'\bimport\s+os\b',           # import os
+        r'\bimport\s+sys\b',          # import sys
+        r'\bimport\s+subprocess\b',   # import subprocess
+        r'\bos\.',                    # os.xxx
+        r'\bsys\.',                   # sys.xxx
+        r'\bsubprocess\.',            # subprocess.xxx
+        r'\bopen\s*\(',               # open(
+        r'\bexec\s*\(',               # exec(
+        r'\beval\s*\(',               # eval(
+        r'__import__',                # __import__
+        r'\bimport\s+requests\b',     # import requests
+        r'\brequests\.',              # requests.xxx
+        r'\bimport\s+urllib\b',       # import urllib
+        r'\burllib\.',                # urllib.xxx
+        r'\bimport\s+socket\b',       # import socket
+        r'\bsocket\.',                # socket.xxx
+        r'\bimport\s+shutil\b',       # import shutil
+        r'\bshutil\.',                # shutil.xxx
+        r'\bimport\s+pathlib\b',      # import pathlib
+        r'\bpathlib\.',               # pathlib.xxx
+        r'\bimport\s+pickle\b',       # import pickle
+        r'\bpickle\.',                # pickle.xxx
+        r'\bimport\s+glob\b',         # import glob
+        r'\bglob\.',                  # glob.xxx
+        r'\bcompile\s*\(',            # compile(
+        r'\b__builtins__\b',          # __builtins__
+        r'\b__globals__\b',           # __globals__
+        r'\b__code__\b',              # __code__
     ]
 
     def __init__(self, llm_api_key: str, llm_base_url: str, model: str = "qwen-max"):
@@ -424,31 +448,82 @@ class CodeWizard(BaseAgent):
     def _clean_code(self, code: str) -> str:
         """
         清理LLM生成的代码，修复常见格式问题
+
+        注意：需要区分「行分隔符」和「字符串内的\\n」
         """
         import re
 
         # 移除markdown代码块标记
         code = re.sub(r'^```python\s*', '', code, flags=re.MULTILINE)
         code = re.sub(r'^```\s*$', '', code, flags=re.MULTILINE)
+        code = re.sub(r'^```json\s*', '', code, flags=re.MULTILINE)
 
-        # 修复错误的换行符表示
-        code = code.replace('\\[n]', '\n')
-        code = code.replace('\\\\n', '\n')
-        code = code.replace('\\n', '\n')
+        # 修复 f-string 引号嵌套问题
+        # 例如: f'{row['col']}' -> f"{row['col']}"
+        # 注意：只修复真正的 f-string，不影响普通字符串如 plt.rcParams['xxx']
+        def fix_fstring_quotes(line):
+            # 必须有 f' 开头才处理
+            if "f'" not in line:
+                return line
 
-        # 修复错误的转义
-        code = code.replace('\\\\[', '[')
-        code = code.replace('\\\\]', ']')
+            # 使用正则匹配 f'...{xxx['key']}...' 模式
+            # 匹配条件：f' 开头，内部 {...} 中有 ['...'] 字典访问
+            pattern = r"f'([^']*)\{([^}]*)\['([^']*)'\]([^}]*)\}([^']*)'"
 
-        # 移除多余的反斜杠
-        code = re.sub(r'\\+([\'"])', r'\1', code)
+            def replace_match(m):
+                # 将外层单引号换成双引号，内部保持不变
+                return f'f"{m.group(1)}{{{m.group(2)}[\'{m.group(3)}\']{ m.group(4)}}}{m.group(5)}"'
 
-        # 修复缩进问题（连续多个空格或tab）
-        lines = code.split('\n')
+            return re.sub(pattern, replace_match, line)
+
+        # 如果代码已经是正常的多行格式，处理 f-string 问题后返回
+        if '\n' in code and '\\n' not in code:
+            lines = code.split('\n')
+            cleaned_lines = [fix_fstring_quotes(line.rstrip()) for line in lines]
+            return '\n'.join(cleaned_lines).strip()
+
+        # 处理 JSON 编码导致的转义问题
+        # 策略：先保护字符串内的 \n，再处理行分隔符，最后恢复
+
+        # Step 1: 保护字符串字面量内的 \n (它们应该保持为 \\n)
+        # 匹配 f-string, 普通字符串中的 \n
+        protected_code = code
+
+        # 用占位符保护字符串内的 \\n
+        placeholder = "___NEWLINE_PLACEHOLDER___"
+
+        # 保护 print(f"...\n...") 这类情况
+        # 匹配引号内的 \\n 并替换为占位符
+        def protect_string_newlines(match):
+            s = match.group(0)
+            # 在字符串内部，\\n 应该保持，不应该变成真正的换行
+            return s.replace('\\n', placeholder)
+
+        # 匹配各种字符串（单引号、双引号、f-string等）
+        # 这是一个简化的匹配，处理常见情况
+        string_pattern = r'([fFrRbBuU]?)(["\'])((?:(?!\2)(?:\\.|[^\\]))*)\2'
+        protected_code = re.sub(string_pattern, protect_string_newlines, protected_code)
+
+        # Step 2: 现在处理行分隔符（不在字符串内的 \\n）
+        # 多重转义：\\\\n -> \n, \\n -> \n
+        protected_code = protected_code.replace('\\\\\\\\n', '\n')
+        protected_code = protected_code.replace('\\\\n', '\n')
+        protected_code = protected_code.replace('\\n', '\n')
+
+        # Step 3: 恢复字符串内的 \n
+        protected_code = protected_code.replace(placeholder, '\\n')
+
+        # 修复方括号转义
+        protected_code = protected_code.replace('\\\\[', '[')
+        protected_code = protected_code.replace('\\\\]', ']')
+        protected_code = protected_code.replace('\\[', '[')
+        protected_code = protected_code.replace('\\]', ']')
+
+        # 修复缩进问题并应用 f-string 修复
+        lines = protected_code.split('\n')
         cleaned_lines = []
         for line in lines:
-            # 保持前导空格但移除行尾空格
-            cleaned_lines.append(line.rstrip())
+            cleaned_lines.append(fix_fstring_quotes(line.rstrip()))
         code = '\n'.join(cleaned_lines)
 
         return code.strip()
@@ -490,11 +565,11 @@ class CodeWizard(BaseAgent):
             }
 
     def _is_code_safe(self, code: str) -> bool:
-        """检查代码安全性"""
-        code_lower = code.lower()
+        """检查代码安全性（使用正则表达式）"""
+        import re
 
         for pattern in self.FORBIDDEN_PATTERNS:
-            if pattern.lower() in code_lower:
+            if re.search(pattern, code, re.IGNORECASE):
                 self.logger.warning(f"Forbidden pattern detected: {pattern}")
                 return False
 
@@ -511,9 +586,34 @@ class CodeWizard(BaseAgent):
         matplotlib.use('Agg')  # 非交互式后端
         import matplotlib.pyplot as plt
 
+        # 预导入允许的模块
+        import pandas as pd
+        import numpy as np
+        import seaborn as sns
+
+        # 白名单基础模块
+        allowed_base_modules = [
+            'pandas', 'numpy', 'matplotlib', 'seaborn',
+            'datetime', 'math', 'statistics', 'json', 'collections', 're'
+        ]
+
+        # 保存原始的 __import__ 函数
+        import builtins
+        original_import = builtins.__import__
+
+        def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+            """安全的 import 函数，只允许白名单模块"""
+            # 检查模块是否在白名单中
+            base_module = name.split('.')[0]
+            if base_module in allowed_base_modules:
+                # 使用真实的 import 来处理（这样可以正确处理 fromlist）
+                return original_import(name, globals, locals, fromlist, level)
+            raise ImportError(f"Import of '{name}' is not allowed in sandbox")
+
         # 准备执行环境
         exec_globals = {
             '__builtins__': {
+                '__import__': safe_import,
                 'print': print,
                 'len': len,
                 'range': range,
@@ -534,24 +634,45 @@ class CodeWizard(BaseAgent):
                 'dict': dict,
                 'tuple': tuple,
                 'set': set,
+                'bool': bool,
                 'True': True,
                 'False': False,
                 'None': None,
-            }
+                'isinstance': isinstance,
+                'type': type,
+                'getattr': getattr,
+                'setattr': setattr,
+                'hasattr': hasattr,
+                'callable': callable,
+                'iter': iter,
+                'next': next,
+                'reversed': reversed,
+                'slice': slice,
+                'all': all,
+                'any': any,
+                'chr': chr,
+                'ord': ord,
+                'hex': hex,
+                'bin': bin,
+                'oct': oct,
+                'pow': pow,
+                'divmod': divmod,
+                'format': format,
+                'repr': repr,
+                'hash': hash,
+                'id': id,
+                'input': lambda *args: '',  # 禁用 input
+                'open': None,  # 禁用 open
+            },
+            # 直接提供模块引用
+            'pd': pd,
+            'np': np,
+            'plt': plt,
+            'sns': sns,
+            'pandas': pd,
+            'numpy': np,
+            'matplotlib': matplotlib,
         }
-
-        # 预导入允许的模块
-        try:
-            import pandas as pd
-            import numpy as np
-            import seaborn as sns
-
-            exec_globals['pd'] = pd
-            exec_globals['np'] = np
-            exec_globals['plt'] = plt
-            exec_globals['sns'] = sns
-        except ImportError as e:
-            self.logger.warning(f"Module import error: {e}")
 
         # 捕获输出
         stdout_capture = io.StringIO()

@@ -1,9 +1,10 @@
-import { FileTextOutlined, ShareAltOutlined, BarChartOutlined, CloseOutlined } from '@ant-design/icons'
+import { FileTextOutlined, ShareAltOutlined, BarChartOutlined, CheckOutlined, LoadingOutlined, FileMarkdownOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import classNames from 'classnames'
 import SearchResults from './search-results'
 import KnowledgeGraph from './knowledge-graph'
 import Visualization from './visualization'
+import ProcessReport from './process-report'
 import styles from './index.module.scss'
 
 export interface SearchResult {
@@ -54,26 +55,50 @@ export interface ResearchDetailData {
   searchResults?: SearchResult[]
   knowledgeGraph?: KnowledgeGraphData
   charts?: ChartConfig[]
+  streamingReport?: string
+}
+
+export interface ResearchStep {
+  id: string
+  type: 'planning' | 'searching' | 'analyzing' | 'generating' | 'writing' | 'reviewing' | 're_researching' | 'revising'
+  title: string
+  subtitle: string
+  status: 'pending' | 'running' | 'completed'
+  stats?: Record<string, number>
 }
 
 interface ResearchDetailProps {
   data: ResearchDetailData | null
+  steps?: ResearchStep[]
+  onStepClick?: (stepId: string) => void
   onClose?: () => void
 }
 
-type TabKey = 'results' | 'graph' | 'charts'
+type TabKey = 'results' | 'graph' | 'charts' | 'report'
 
-export default function ResearchDetail({ data, onClose }: ResearchDetailProps) {
+const stepLabels: Record<ResearchStep['type'], string> = {
+  planning: '研究计划',
+  searching: '信息检索',
+  analyzing: '数据分析',
+  generating: '内容生成',
+  writing: '撰写报告',
+  reviewing: '质量审核',
+  re_researching: '补充搜索',
+  revising: '内容修订',
+}
+
+export default function ResearchDetail({ data, steps = [], onStepClick, onClose }: ResearchDetailProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('results')
 
-  if (!data) {
+  // 空状态
+  if (!data && steps.length === 0) {
     return (
       <div className={styles.panel}>
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>
             <FileTextOutlined />
           </div>
-          <div className={styles.emptyText}>点击左侧步骤查看详情</div>
+          <div className={styles.emptyText}>开始深度研究后在此查看详情</div>
         </div>
       </div>
     )
@@ -84,36 +109,58 @@ export default function ResearchDetail({ data, onClose }: ResearchDetailProps) {
       key: 'results',
       label: '搜索结果',
       icon: <FileTextOutlined />,
-      count: data.searchResults?.length,
+      count: data?.searchResults?.length,
     },
     {
       key: 'graph',
       label: '知识图谱',
       icon: <ShareAltOutlined />,
-      count: data.knowledgeGraph?.nodes?.length,
+      count: data?.knowledgeGraph?.nodes?.length,
     },
     {
       key: 'charts',
       label: '可视化图表',
       icon: <BarChartOutlined />,
-      count: data.charts?.length,
+      count: data?.charts?.length,
+    },
+    {
+      key: 'report',
+      label: '过程报告',
+      icon: <FileMarkdownOutlined />,
     },
   ]
 
   return (
     <div className={styles.panel}>
-      {/* 头部 */}
-      <div className={styles.header}>
-        <div className={styles.headerLeft}>
-          <span className={styles.stepType}>{data.subtitle || data.stepType}</span>
-          <h2 className={styles.title}>{data.title}</h2>
+      {/* 研究进度步骤条 */}
+      {steps.length > 0 && (
+        <div className={styles.stepper}>
+          {steps.map((step, index) => (
+            <div
+              key={step.id}
+              className={classNames(styles.stepItem, {
+                [styles.active]: data?.stepId === step.id,
+                [styles.completed]: step.status === 'completed',
+                [styles.running]: step.status === 'running',
+                [styles.clickable]: step.status === 'completed',
+              })}
+              onClick={() => step.status === 'completed' && onStepClick?.(step.id)}
+            >
+              <div className={styles.stepIcon}>
+                {step.status === 'completed' ? (
+                  <CheckOutlined />
+                ) : step.status === 'running' ? (
+                  <LoadingOutlined spin />
+                ) : (
+                  <span>{index + 1}</span>
+                )}
+              </div>
+              <div className={styles.stepLabel}>{stepLabels[step.type] || step.title}</div>
+              {index < steps.length - 1 && <div className={styles.stepLine} />}
+            </div>
+          ))}
         </div>
-        {onClose && (
-          <button className={styles.closeBtn} onClick={onClose}>
-            <CloseOutlined />
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Tab 切换 */}
       <div className={styles.tabs}>
@@ -134,9 +181,10 @@ export default function ResearchDetail({ data, onClose }: ResearchDetailProps) {
 
       {/* 内容区 */}
       <div className={styles.content}>
-        {activeTab === 'results' && <SearchResults data={data.searchResults} />}
-        {activeTab === 'graph' && <KnowledgeGraph data={data.knowledgeGraph} />}
-        {activeTab === 'charts' && <Visualization charts={data.charts} />}
+        {activeTab === 'results' && <SearchResults data={data?.searchResults} />}
+        {activeTab === 'graph' && <KnowledgeGraph data={data?.knowledgeGraph} />}
+        {activeTab === 'charts' && <Visualization charts={data?.charts} />}
+        {activeTab === 'report' && <ProcessReport content={data?.streamingReport} />}
       </div>
     </div>
   )

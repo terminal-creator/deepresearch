@@ -1,17 +1,23 @@
+// ============================================
+// Premium Design System - Chat Page
+// ============================================
+
 .chat-page {
-  padding: 28px 40px;
+  padding: 32px 40px;
   margin: 0 auto;
   display: flex;
-  gap: 24px;
+  gap: 28px;
 
   .chat-page__header {
     text-align: center;
-    font-weight: bold;
-    font-size: 18px;
+    font-weight: 600;
+    font-size: 16px;
     display: flex;
-    gap: 8px;
+    gap: 10px;
     justify-content: center;
     align-items: center;
+    color: #1a1a1a;
+    letter-spacing: -0.3px;
 
     .chat-page__header-title {
       white-space: nowrap;
@@ -25,10 +31,10 @@
   flex-shrink: 0;
   width: 280px;
   position: sticky;
-  top: 20px;
+  top: 24px;
   align-self: flex-start;
   background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 18px;
 }

@@ -58,8 +58,8 @@ class DeepResearchGraph:
         # 初始化各个Agent
         self.architect = ChiefArchitect(llm_api_key, llm_base_url, model)
         self.scout = DeepScout(llm_api_key, llm_base_url, search_api_key, "qwen-plus")
+        self.data_analyst = DataAnalyst(llm_api_key, llm_base_url, model)
         self.wizard = CodeWizard(llm_api_key, llm_base_url, model)
-        self.data_analyst = DataAnalyst(llm_api_key, llm_base_url, model)  # 数据分析师
         self.critic = CriticMaster(llm_api_key, llm_base_url, model)
         self.writer = LeadWriter(llm_api_key, llm_base_url, model)
 
@@ -128,10 +128,7 @@ class DeepResearchGraph:
         logger.info("Executing Analyze node...")
         state = dict(state)
         state["phase"] = ResearchPhase.ANALYZING.value
-        # 先用 DataAnalyst 提取数据、构建知识图谱、生成图表
-        result = await self.data_analyst.process(state)
-        # 再用 CodeWizard 进行代码分析（如有需要）
-        result = await self.wizard.process(result)
+        result = await self.wizard.process(state)
         return dict(result)
 
     async def _write_node(self, state: ResearchState) -> Dict[str, Any]:
@@ -226,59 +223,94 @@ class DeepResearchGraph:
         """
         简化版执行流程（不依赖 LangGraph）
 
-        实现相同的流程但使用简单的顺序执行和循环
+        使用 asyncio.Queue 实现实时流式输出
         """
+        # 创建消息队列用于实时输出
+        message_queue = asyncio.Queue()
+        state["_message_queue"] = message_queue
+
+        async def run_agent_with_streaming(agent):
+            """执行 agent 并实时 yield 消息"""
+            # 启动 agent 处理任务
+            task = asyncio.create_task(agent.process(state))
+
+            # 在任务执行期间持续从队列获取消息
+            while not task.done():
+                try:
+                    msg = await asyncio.wait_for(message_queue.get(), timeout=0.1)
+                    yield msg
+                except asyncio.TimeoutError:
+                    continue
+                except Exception:
+                    continue
+
+            # 等待任务完成（获取可能的异常）
+            try:
+                await task
+            except Exception as e:
+                logger.error(f"Agent {agent.name} error: {e}")
+
+            # 清空剩余的消息
+            while not message_queue.empty():
+                try:
+                    msg = message_queue.get_nowait()
+                    yield msg
+                except:
+                    break
+
         try:
             # Phase 1: Plan
             yield {"type": "phase", "phase": "planning", "content": "开始规划研究..."}
-            state = await self.architect.process(state)
-            for msg in state["messages"]:
+            async for msg in run_agent_with_streaming(self.architect):
                 yield msg
             state["messages"] = []
 
-            # Phase 2: Research
+            # Phase 2: Research (这是最需要实时输出的阶段)
             yield {"type": "phase", "phase": "researching", "content": "开始深度搜索..."}
-            state = await self.scout.process(state)
-            for msg in state["messages"]:
+            async for msg in run_agent_with_streaming(self.scout):
                 yield msg
             state["messages"] = []
 
             # Phase 3: Analyze
             yield {"type": "phase", "phase": "analyzing", "content": "开始数据分析..."}
-            # 先用 DataAnalyst 提取数据、构建知识图谱、生成图表
-            state = await self.data_analyst.process(state)
-            for msg in state["messages"]:
+            async for msg in run_agent_with_streaming(self.data_analyst):
                 yield msg
             state["messages"] = []
-            # 再用 CodeWizard 进行代码分析
-            state = await self.wizard.process(state)
-            for msg in state["messages"]:
+            async for msg in run_agent_with_streaming(self.wizard):
                 yield msg
             state["messages"] = []
 
             # Phase 4: Write
             yield {"type": "phase", "phase": "writing", "content": "开始撰写报告..."}
-            state = await self.writer.process(state)
-            for msg in state["messages"]:
+            async for msg in run_agent_with_streaming(self.writer):
                 yield msg
             state["messages"] = []
 
-            # Phase 5 & 6: Review & Revise Loop
+            # Phase 5 & 6: Review & Revise/Re-Research Loop
             while state["iteration"] < state["max_iterations"]:
                 yield {"type": "phase", "phase": "reviewing", "content": f"审核中（第 {state['iteration'] + 1} 轮）..."}
-                state = await self.critic.process(state)
-                for msg in state["messages"]:
+                async for msg in run_agent_with_streaming(self.critic):
                     yield msg
                 state["messages"] = []
 
-                # 检查是否需要修订
                 if state["phase"] == ResearchPhase.COMPLETED.value:
                     break
 
-                if state["phase"] == ResearchPhase.REVISING.value:
+                if state["phase"] == ResearchPhase.RE_RESEARCHING.value:
+                    yield {"type": "phase", "phase": "re_researching", "content": "根据审核反馈补充搜索..."}
+                    async for msg in run_agent_with_streaming(self.scout):
+                        yield msg
+                    state["messages"] = []
+
+                    yield {"type": "phase", "phase": "rewriting", "content": "基于新信息重新撰写..."}
+                    state["phase"] = ResearchPhase.WRITING.value
+                    async for msg in run_agent_with_streaming(self.writer):
+                        yield msg
+                    state["messages"] = []
+
+                elif state["phase"] == ResearchPhase.REVISING.value:
                     yield {"type": "phase", "phase": "revising", "content": "根据反馈修订报告..."}
-                    state = await self.writer.process(state)
-                    for msg in state["messages"]:
+                    async for msg in run_agent_with_streaming(self.writer):
                         yield msg
                     state["messages"] = []
                 else:
@@ -298,6 +330,9 @@ class DeepResearchGraph:
         except Exception as e:
             logger.error(f"Simplified execution error: {e}")
             yield {"type": "error", "content": str(e)}
+        finally:
+            # 清理队列
+            state["_message_queue"] = None
 
     async def run_sync(self, query: str, session_id: str) -> ResearchState:
         """
@@ -311,16 +346,25 @@ class DeepResearchGraph:
         # 依次执行各阶段
         state = await self.architect.process(state)
         state = await self.scout.process(state)
-        state = await self.data_analyst.process(state)  # 数据分析
+        state = await self.data_analyst.process(state)
         state = await self.wizard.process(state)
         state = await self.writer.process(state)
 
-        # 审核修订循环
+        # 审核修订循环（支持智能路由）
         while state["iteration"] < state["max_iterations"]:
             state = await self.critic.process(state)
+
             if state["phase"] == ResearchPhase.COMPLETED.value:
                 break
-            if state["phase"] == ResearchPhase.REVISING.value:
+
+            # 智能路由：需要补充搜索
+            if state["phase"] == ResearchPhase.RE_RESEARCHING.value:
+                state = await self.scout.process(state)
+                state["phase"] = ResearchPhase.WRITING.value
+                state = await self.writer.process(state)
+
+            # 仅需要文字修订
+            elif state["phase"] == ResearchPhase.REVISING.value:
                 state = await self.writer.process(state)
             else:
                 break

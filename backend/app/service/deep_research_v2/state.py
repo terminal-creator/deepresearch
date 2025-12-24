@@ -19,7 +19,8 @@ class ResearchPhase(str, Enum):
     ANALYZING = "analyzing"          # 数据分析阶段
     WRITING = "writing"              # 撰写阶段
     REVIEWING = "reviewing"          # 对抗审核阶段
-    REVISING = "revising"            # 修订阶段
+    RE_RESEARCHING = "re_researching"  # 补充搜索阶段（审核发现缺失信息后）
+    REVISING = "revising"            # 修订阶段（仅文字修改）
     COMPLETED = "completed"          # 完成
 
 
@@ -142,6 +143,7 @@ class ResearchState(TypedDict):
     critic_feedback: List[Dict[str, Any]]   # 评论家反馈
     unresolved_issues: int                  # 未解决问题数
     quality_score: float                    # 质量评分
+    pending_search_queries: List[str]       # 待执行的补充搜索查询（审核后需要补充的）
 
     # 元数据
     logs: List[Dict[str, Any]]              # 执行日志
@@ -175,6 +177,7 @@ def create_initial_state(query: str, session_id: str) -> ResearchState:
         critic_feedback=[],
         unresolved_issues=0,
         quality_score=0.0,
+        pending_search_queries=[],
         logs=[],
         errors=[],
         messages=[]

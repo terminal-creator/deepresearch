@@ -250,9 +250,12 @@ const ReAct过程 = (props: { item: API.ChatItem; onStepClick?: (stepId: string)
             <div className={styles['react-step-content']}>
               {step.content != null && (
                 typeof step.content === 'string' && step.content
-                  ? step.content.split('\n').map((line, i) => (
-                      <div key={i}>{line}</div>
-                    ))
+                  ? (step.type === 'plan'
+                      ? <Markdown className={styles['react-step-markdown']} value={step.content} />
+                      : step.content.split('\n').map((line, i) => (
+                          <div key={i}>{line}</div>
+                        ))
+                    )
                   : typeof step.content === 'object'
                     ? <pre>{JSON.stringify(step.content, null, 2)}</pre>
                     : <div>{String(step.content)}</div>

@@ -185,6 +185,16 @@ class LeadWriter(BaseAgent):
 
     async def _write_report(self, state: ResearchState) -> ResearchState:
         """撰写报告"""
+        # 发送 research_step 开始事件
+        self.add_message(state, "research_step", {
+            "step_id": f"step_generating_{uuid.uuid4().hex[:8]}",
+            "step_type": "generating",
+            "title": "内容生成",
+            "subtitle": "撰写研究报告",
+            "status": "running",
+            "stats": {"sections_count": len(state["outline"]), "word_count": 0}
+        })
+
         self.add_message(state, "thought", {
             "agent": self.name,
             "content": "开始撰写深度研究报告..."
@@ -197,6 +207,20 @@ class LeadWriter(BaseAgent):
 
         # 整合报告
         await self._synthesize_report(state)
+
+        # 发送 research_step 完成事件
+        word_count = len(state.get("final_report", ""))
+        self.add_message(state, "research_step", {
+            "step_type": "generating",
+            "title": "内容生成",
+            "subtitle": "撰写研究报告",
+            "status": "completed",
+            "stats": {
+                "sections_count": len(state["outline"]),
+                "word_count": word_count,
+                "references_count": len(state.get("references", []))
+            }
+        })
 
         # 更新阶段
         state["phase"] = ResearchPhase.REVIEWING.value

@@ -183,8 +183,9 @@ class CriticMaster(BaseAgent):
                     "suggestion": issue.get("suggestion")
                 })
 
-            # 决定下一步
+            # 决定下一步 - 智能路由
             verdict = review_result.get("overall_assessment", {}).get("verdict", "needs_revision")
+
             if verdict == "pass":
                 state["phase"] = ResearchPhase.COMPLETED.value
             elif state["iteration"] >= state["max_iterations"]:
@@ -195,10 +196,72 @@ class CriticMaster(BaseAgent):
                     "content": "已达最大迭代次数，部分问题可能未解决"
                 })
             else:
-                state["phase"] = ResearchPhase.REVISING.value
+                # 智能路由：判断是需要补充搜索还是仅修改文字
+                needs_new_search = self._analyze_issues_for_routing(review_result)
+
+                if needs_new_search["should_research"]:
+                    # 需要补充搜索 -> 回到研究阶段
+                    state["phase"] = ResearchPhase.RE_RESEARCHING.value
+                    state["pending_search_queries"] = needs_new_search["search_queries"]
+                    self.add_message(state, "thought", {
+                        "agent": self.name,
+                        "content": f"发现信息缺失问题，需要补充搜索: {', '.join(needs_new_search['search_queries'][:3])}"
+                    })
+                else:
+                    # 仅需要文字修改 -> 修订阶段
+                    state["phase"] = ResearchPhase.REVISING.value
+
                 state["iteration"] += 1
 
         return state
+
+    def _analyze_issues_for_routing(self, review_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        分析问题类型，决定路由方向
+
+        Returns:
+            {
+                "should_research": bool,  # 是否需要重新搜索
+                "search_queries": List[str]  # 建议的搜索查询
+            }
+        """
+        issues = review_result.get("issues", [])
+        missing_aspects = review_result.get("missing_aspects", [])
+
+        # 需要补充搜索的问题类型
+        research_needed_types = {"missing_source", "incomplete", "outdated"}
+
+        search_queries = []
+        research_issues_count = 0
+
+        for issue in issues:
+            issue_type = issue.get("issue_type", "")
+            severity = issue.get("severity", "minor")
+
+            # 检查是否是需要搜索的问题类型
+            if issue_type in research_needed_types and severity in ["critical", "major"]:
+                research_issues_count += 1
+
+                # 收集搜索建议
+                if issue.get("requires_new_search") and issue.get("search_query"):
+                    search_queries.append(issue["search_query"])
+
+        # 添加遗漏方面的搜索查询
+        for aspect in missing_aspects[:3]:
+            search_queries.append(aspect)
+
+        # 决策：如果有超过30%的严重问题需要搜索，或者有明确的搜索建议，则回到搜索阶段
+        total_critical_major = len([i for i in issues if i.get("severity") in ["critical", "major"]])
+        should_research = (
+            len(search_queries) > 0 and
+            (research_issues_count > 0 or len(missing_aspects) > 0) and
+            (total_critical_major == 0 or research_issues_count / max(total_critical_major, 1) > 0.3)
+        )
+
+        return {
+            "should_research": should_research,
+            "search_queries": list(set(search_queries))[:5]  # 去重，最多5个查询
+        }
 
     async def _review_content(self, state: ResearchState) -> Dict[str, Any]:
         """审核内容"""

@@ -170,6 +170,16 @@ class ChiefArchitect(BaseAgent):
         """初始规划"""
         self.logger.info(f"Starting initial planning for: {state['query'][:50]}...")
 
+        # 发送 research_step 开始事件
+        self.add_message(state, "research_step", {
+            "step_id": f"step_planning_{uuid.uuid4().hex[:8]}",
+            "step_type": "planning",
+            "title": "研究计划",
+            "subtitle": "分析问题，制定大纲",
+            "status": "running",
+            "stats": {}
+        })
+
         # 发送状态消息
         self.add_message(state, "thought", {
             "agent": self.name,
@@ -282,6 +292,18 @@ class ChiefArchitect(BaseAgent):
 
         # 更新阶段
         state["phase"] = ResearchPhase.PLANNING.value
+
+        # 发送 research_step 完成事件
+        self.add_message(state, "research_step", {
+            "step_type": "planning",
+            "title": "研究计划",
+            "subtitle": "分析问题，制定大纲",
+            "status": "completed",
+            "stats": {
+                "sections_count": len(processed_outline),
+                "questions_count": len(state["research_questions"])
+            }
+        })
 
         self.logger.info(f"Planning completed. Generated {len(outline)} sections.")
 

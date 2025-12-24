@@ -239,6 +239,13 @@ class BaseAgent(ABC):
         }
         state["messages"].append(message)
 
+        # 如果有消息队列，立即推送（支持实时流式输出）
+        if "_message_queue" in state and state["_message_queue"] is not None:
+            try:
+                state["_message_queue"].put_nowait(message)
+            except Exception as e:
+                self.logger.warning(f"Failed to push message to queue: {e}")
+
     def add_log(
         self,
         state: ResearchState,
