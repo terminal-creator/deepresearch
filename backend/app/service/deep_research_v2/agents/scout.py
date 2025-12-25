@@ -18,6 +18,19 @@ from datetime import datetime
 from .base import BaseAgent
 from ..state import ResearchState, ResearchPhase
 
+# 网页文本提取库（可选依赖）
+try:
+    import trafilatura
+    TRAFILATURA_AVAILABLE = True
+except ImportError:
+    TRAFILATURA_AVAILABLE = False
+
+try:
+    from bs4 import BeautifulSoup
+    BS4_AVAILABLE = True
+except ImportError:
+    BS4_AVAILABLE = False
+
 
 class DeepScout(BaseAgent):
     """
@@ -165,6 +178,9 @@ URL: {url}
         if state["phase"] not in [ResearchPhase.PLANNING.value, ResearchPhase.RESEARCHING.value]:
             return state
 
+        # 自动识别并获取股票数据
+        await self._fetch_stock_data_if_relevant(state)
+
         state["phase"] = ResearchPhase.RESEARCHING.value
 
         # 获取需要研究的章节
@@ -311,6 +327,94 @@ URL: {url}
         state["phase"] = ResearchPhase.WRITING.value
 
         return state
+
+    async def _fetch_stock_data_if_relevant(self, state: ResearchState) -> None:
+        """
+        自动识别查询中的上市公司，获取实时股票数据
+
+        当用户查询涉及上市公司时（如"茅台怎么样"），自动获取股票行情并添加到数据点
+        """
+        try:
+            try:
+                from config.stock_mapping import find_company_in_query
+                from service.stock_service import get_stock_service
+            except ImportError:
+                from app.config.stock_mapping import find_company_in_query
+                from app.service.stock_service import get_stock_service
+
+            query = state.get("query", "")
+            found_companies = find_company_in_query(query)
+
+            if not found_companies:
+                return
+
+            stock_service = get_stock_service()
+
+            for company_name, stock_code in found_companies[:2]:  # 最多查询2只股票
+                self.logger.info(f"检测到上市公司: {company_name} ({stock_code})")
+
+                result = await stock_service.get_stock_by_code(stock_code)
+
+                if result.get("success"):
+                    data = result["data"]
+
+                    # 添加到 data_points
+                    if "data_points" not in state:
+                        state["data_points"] = []
+
+                    state["data_points"].extend([
+                        {
+                            "name": f"{data['name']}当前股价",
+                            "value": float(data['nowPri']) if data['nowPri'] else 0,
+                            "unit": "元",
+                            "source": "聚合数据股票API",
+                            "source_type": "realtime"
+                        },
+                        {
+                            "name": f"{data['name']}涨跌幅",
+                            "value": data['increPer'],
+                            "unit": "%",
+                            "source": "聚合数据股票API",
+                            "source_type": "realtime"
+                        },
+                        {
+                            "name": f"{data['name']}今日成交量",
+                            "value": data['traAmount'],
+                            "unit": "手",
+                            "source": "聚合数据股票API",
+                            "source_type": "realtime"
+                        },
+                    ])
+
+                    # 发送实时行情消息
+                    self.add_message(state, "stock_quote", {
+                        "agent": self.name,
+                        "code": stock_code,
+                        "name": data['name'],
+                        "price": data['nowPri'],
+                        "change": data['increase'],
+                        "change_percent": data['increPer'],
+                        "high": data['todayMax'],
+                        "low": data['todayMin'],
+                        "volume": data['traAmount'],
+                        "turnover": data['traNumber'],
+                        "open": data['todayStartPri'],
+                        "prev_close": data['yestodEndPri']
+                    })
+
+                    self.add_message(state, "thought", {
+                        "agent": self.name,
+                        "content": f"已获取 {data['name']} 实时行情：¥{data['nowPri']} ({data['increPer']})"
+                    })
+
+                    self.logger.info(f"获取股票数据成功: {data['name']} ¥{data['nowPri']}")
+                else:
+                    self.logger.warning(f"获取股票数据失败: {stock_code} - {result.get('error')}")
+
+        except ImportError as e:
+            self.logger.warning(f"股票模块导入失败: {e}")
+        except Exception as e:
+            self.logger.error(f"获取股票数据异常: {e}")
 
     async def _analyze_supplementary_results(
         self,
@@ -940,8 +1044,11 @@ URL: {r.get('url', '')}
             if response.status_code != 200:
                 return None
 
-            # TODO: 使用 BeautifulSoup 或 Trafilatura 提取正文
-            content = response.text[:10000]  # 简化处理
+            # 提取网页正文（去除 HTML 标签和噪音）
+            content = self._extract_text_from_html(response.text, url)
+            if not content or len(content) < 100:
+                self.logger.warning(f"Extracted content too short for {url}")
+                return None
 
             prompt = self.DEEP_READ_PROMPT.format(
                 query=query,
@@ -961,6 +1068,97 @@ URL: {r.get('url', '')}
         except Exception as e:
             self.logger.error(f"Deep read error for {url}: {e}")
             return None
+
+    def _extract_text_from_html(self, html: str, url: str = "", max_length: int = 12000) -> str:
+        """
+        从 HTML 中提取纯文本正文
+
+        使用多种策略提取，优先级：
+        1. trafilatura - 专业的网页正文提取库（效果最好）
+        2. BeautifulSoup - 通用 HTML 解析（备选）
+        3. 简单正则 - 最后的备选方案
+
+        Args:
+            html: 原始 HTML 内容
+            url: 网页 URL（用于 trafilatura 优化）
+            max_length: 最大返回长度
+
+        Returns:
+            提取的纯文本
+        """
+        text = ""
+
+        # 方法 1: 使用 trafilatura（效果最好）
+        if TRAFILATURA_AVAILABLE:
+            try:
+                text = trafilatura.extract(
+                    html,
+                    url=url,
+                    include_comments=False,
+                    include_tables=True,
+                    no_fallback=False,
+                    favor_precision=True
+                )
+                if text and len(text) > 200:
+                    self.logger.debug(f"Trafilatura extracted {len(text)} chars from {url}")
+                    return text[:max_length]
+            except Exception as e:
+                self.logger.warning(f"Trafilatura extraction failed: {e}")
+
+        # 方法 2: 使用 BeautifulSoup
+        if BS4_AVAILABLE:
+            try:
+                soup = BeautifulSoup(html, 'lxml')
+
+                # 移除无用标签
+                for tag in soup(['script', 'style', 'nav', 'header', 'footer',
+                                'aside', 'iframe', 'noscript', 'meta', 'link']):
+                    tag.decompose()
+
+                # 尝试找正文区域
+                main_content = None
+                for selector in ['article', 'main', '.content', '.article',
+                                '#content', '#article', '.post', '.entry']:
+                    main_content = soup.select_one(selector)
+                    if main_content:
+                        break
+
+                if main_content:
+                    text = main_content.get_text(separator='\n', strip=True)
+                else:
+                    # 找不到正文区域，提取 body
+                    body = soup.find('body')
+                    if body:
+                        text = body.get_text(separator='\n', strip=True)
+                    else:
+                        text = soup.get_text(separator='\n', strip=True)
+
+                if text and len(text) > 200:
+                    # 清理多余空白
+                    import re
+                    text = re.sub(r'\n{3,}', '\n\n', text)
+                    text = re.sub(r' {2,}', ' ', text)
+                    self.logger.debug(f"BeautifulSoup extracted {len(text)} chars from {url}")
+                    return text[:max_length]
+
+            except Exception as e:
+                self.logger.warning(f"BeautifulSoup extraction failed: {e}")
+
+        # 方法 3: 简单正则（最后的备选）
+        import re
+        # 移除 script 和 style
+        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        # 移除所有 HTML 标签
+        text = re.sub(r'<[^>]+>', ' ', text)
+        # 解码 HTML 实体
+        text = text.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>')
+        text = text.replace('&amp;', '&').replace('&quot;', '"')
+        # 清理空白
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        self.logger.debug(f"Regex extracted {len(text)} chars from {url}")
+        return text[:max_length]
 
     def _compute_fact_fingerprint(self, content: str) -> str:
         """计算事实的语义指纹用于去重"""

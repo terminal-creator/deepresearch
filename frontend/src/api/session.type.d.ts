@@ -47,6 +47,22 @@ declare namespace API {
     researchPlan?: ResearchPlan  // 研究计划
     charts?: ChartConfig[]
     insights?: string[]
+    stockQuote?: StockQuoteData  // 股票实时行情
+  }
+
+  // 股票行情数据
+  interface StockQuoteData {
+    code: string
+    name: string
+    price: string | number
+    change: string | number
+    change_percent: string
+    high?: string
+    low?: string
+    volume?: string
+    turnover?: string
+    open?: string
+    prev_close?: string
   }
 
   // 研究计划

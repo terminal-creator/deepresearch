@@ -186,9 +186,10 @@ class LeadWriter(BaseAgent):
     async def _write_report(self, state: ResearchState) -> ResearchState:
         """撰写报告"""
         # 发送 research_step 开始事件
+        # 注意: step_type 必须是 "writing" 以匹配 graph.py 发送的 phase 事件
         self.add_message(state, "research_step", {
-            "step_id": f"step_generating_{uuid.uuid4().hex[:8]}",
-            "step_type": "generating",
+            "step_id": f"step_writing_{uuid.uuid4().hex[:8]}",
+            "step_type": "writing",
             "title": "内容生成",
             "subtitle": "撰写研究报告",
             "status": "running",
@@ -211,7 +212,7 @@ class LeadWriter(BaseAgent):
         # 发送 research_step 完成事件
         word_count = len(state.get("final_report", ""))
         self.add_message(state, "research_step", {
-            "step_type": "generating",
+            "step_type": "writing",
             "title": "内容生成",
             "subtitle": "撰写研究报告",
             "status": "completed",
@@ -282,7 +283,8 @@ class LeadWriter(BaseAgent):
         result = self.parse_json_response(response)
 
         if result and result.get("content"):
-            state["draft_sections"][section_id] = result["content"]
+            section_content = result["content"]
+            state["draft_sections"][section_id] = section_content
             section["status"] = "drafted"
 
             # 收集引用
@@ -294,13 +296,20 @@ class LeadWriter(BaseAgent):
                     "url": citation.get("url", "")
                 })
 
-            # 发送写作进度
-            self.add_message(state, "section_draft", {
+            # 发送章节内容到"过程报告" - 包含完整内容用于流式显示
+            self.add_message(state, "section_content", {
                 "agent": self.name,
                 "section_id": section_id,
                 "section_title": section.get("title"),
-                "word_count": len(result["content"]),
+                "content": section_content,  # 完整章节内容
+                "word_count": len(section_content),
                 "key_points": result.get("key_points", [])
+            })
+
+            # 发送观察消息（显示在左侧步骤流程）
+            self.add_message(state, "observation", {
+                "agent": self.name,
+                "content": f"章节「{section.get('title')}」撰写完成\n字数: {len(section_content)}\n要点: {', '.join(result.get('key_points', [])[:2]) if result.get('key_points') else '无'}"
             })
 
     async def _synthesize_report(self, state: ResearchState) -> None:
@@ -352,9 +361,10 @@ class LeadWriter(BaseAgent):
                 if ref not in state["references"]:
                     state["references"].append(ref)
 
-            # 发送报告完成事件
+            # 发送报告完成事件 - 包含完整报告内容用于前端流式显示
             self.add_message(state, "report_draft", {
                 "agent": self.name,
+                "content": state["final_report"],  # 完整报告内容
                 "executive_summary": result.get("executive_summary", ""),
                 "conclusions": result.get("conclusions", []),
                 "word_count": len(state["final_report"]),

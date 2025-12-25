@@ -46,45 +46,161 @@ class CodeWizard(BaseAgent):
 2. 计算关键统计指标
 3. 生成专业的可视化图表
 
-## 代码要求
-- 只能使用以下库: pandas, numpy, matplotlib, seaborn
-- 图表要有中文标题和标签
-- 使用 plt.rcParams['font.sans-serif'] = ['SimHei'] 支持中文
-- 图表保存为 PNG，使用 plt.savefig('chart.png', dpi=150, bbox_inches='tight')
-- 代码要有注释，说明每步在做什么
-- 打印关键的统计结果
+## 代码要求（必须严格遵守）
 
-## 输出格式
+### 0. 禁止使用反斜杠续行（最重要！）
+**严禁使用反斜杠 `\\` 进行代码续行**。Python 的字典、列表、函数参数天然支持跨行书写，不需要反斜杠。
+
+✅ 正确示例：
+```python
+data = {{
+    "Year": [2020, 2021, 2022],
+    "Value": [100, 200, 300]
+}}
+df = pd.DataFrame(data)
+```
+
+❌ 错误示例（绝对禁止）：
+```python
+data = {{ \\
+    "Year": ...
+}}
+```
+
+### 1. 数据精简
+- **只选取最关键的5-10个数据点**，不要把所有数据都写入代码
+- **相同指标去重**：如果有多个年份的同一指标，只保留有代表性的几个
+- **代码总长度不超过40行**
+- **禁止生成重复数据**：如 [2020, 2020, 2020...] 这种重复是错误的
+
+### 2. 数据定义方式
+必须使用"列字典"格式定义数据：
+```python
+data = {{
+    "Year": [2018, 2020, 2022, 2024],
+    "Market_Size": [604.2, 1500, 2300, 3000]
+}}
+df = pd.DataFrame(data)
+```
+
+**禁止**使用复杂的嵌套列表 `[[...], [...]]`。
+
+### 3. 数据清洗
+创建 DataFrame 后，**必须**执行类型转换：
+```python
+for col in df.columns:
+    if col != 'Year':
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+df = df.dropna()
+```
+
+### 4. 环境限制
+- **禁止import语句**，已预定义: pd, np, plt, sns
+- **禁止plt.rcParams**，中文字体已预设
+
+### 5. 图表保存
+plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
+
+## 输出格式（严格JSON，code字段用\\n表示换行）
 ```json
 {{
-    "analysis_plan": "分析计划说明",
-    "code": "完整的Python代码",
-    "expected_outputs": ["预期输出的图表和指标"],
-    "data_transformations": ["数据转换说明"]
+    "analysis_plan": "简要分析计划",
+    "code": "data = {{'Year': [2020, 2022, 2024], 'Value': [100, 150, 200]}}\\ndf = pd.DataFrame(data)\\ndf['Value'] = pd.to_numeric(df['Value'], errors='coerce')\\nplt.figure(figsize=(10, 6))\\nplt.plot(df['Year'], df['Value'])\\nplt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')",
+    "expected_outputs": ["图表描述"]
 }}
-```"""
+```
 
-    CHART_PROMPT = """你是一位专业的数据可视化专家。
+注意：code 字段中的换行请使用 `\\n` 字符表示，不要使用物理换行符，也**绝对不要使用续行符 `\\`**。"""
 
-## 研究主题
-{topic}
+    CHART_PROMPT = """你是专业的数据可视化专家。
+
+## 主题: {topic}
+## 图表类型: {chart_type}
+## 标题: {title}
 
 ## 数据
 {data}
 
-## 图表需求
-类型: {chart_type}
-标题: {title}
+## 代码要求（重要）
+1. **严禁使用反斜杠 `\\` 进行代码续行**。Python 的字典、列表天然支持跨行书写，不需要反斜杠。
+2. **不要写import语句**，已预导入: pd, np, plt, sns
+3. 中文字体已预设，不需要设置 plt.rcParams
+4. 图表尺寸 (10, 6) 或 (12, 8)
+5. 数据定义使用标准字典格式: `data = {{"col1": [...], "col2": [...]}}`
+6. 保存: plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
+
+## 输出格式（严格JSON）
+```json
+{{
+    "code": "data = {{'Year': [2020, 2022], 'Value': [100, 200]}}\\ndf = pd.DataFrame(data)\\nplt.figure(figsize=(10,6))\\nplt.bar(df['Year'], df['Value'])\\nplt.savefig('chart.png')",
+    "chart_description": "图表说明"
+}}
+```
+
+注意：code字段用 `\\n` 表示换行，**绝对不要使用续行符 `\\`**。"""
+
+    CODE_FIX_PROMPT = """你是一位Python专家，需要修复执行失败的代码。
+
+## 错误类型诊断
+
+请根据错误信息判断错误类型并采取对应修复方法：
+
+1. **如果错误是 `could not convert string to float`**：
+   说明你试图将包含中文或特殊字符的列作为数值列处理。
+   **修复方法**：在绘图或计算前，使用 `pd.to_numeric(df['col'], errors='coerce')` 清洗该列，并删除 NaN 值。
+   不要试图直接画包含中文内容的列（除非是作为标签）。
+
+2. **如果错误是 `SyntaxError`**：
+   检查是否有多余的反斜杠或未闭合的括号。
+
+3. **如果错误是 `KeyError`**：
+   检查 DataFrame 列名是否正确，确保使用的列名与数据定义一致。
+
+4. **如果错误是类型相关 (`TypeError`)**：
+   检查数据类型是否匹配，必要时使用 `.astype()` 或 `pd.to_numeric()` 转换。
+
+## 原始代码
+{code}
+
+## 错误信息
+{error}
+
+## 输出
+{stdout}
+
+## 要求
+1. **不要写import语句**，已预导入: pd, np, plt, sns
+2. 中文字体已预设
+3. 使用"列字典"格式定义数据: `data = {{"col1": [...], "col2": [...]}}`
+4. 创建 DataFrame 后立即转换数值列
+
+## 输出格式
+```json
+{{
+    "error_analysis": "错误原因分析",
+    "fix_description": "具体修复说明",
+    "fixed_code": "data = {{'Year': [2020, 2021], 'Value': [100, 200]}}\\ndf = pd.DataFrame(data)\\ndf['Value'] = pd.to_numeric(df['Value'], errors='coerce')\\nprint('done')"
+}}
+```"""
+
+    # 词云图专用 Prompt
+    WORDCLOUD_PROMPT = """你是一位数据可视化专家，擅长文本分析和词云图制作。
+
+## 研究主题
+{topic}
+
+## 文本数据
+{text_data}
 
 ## 任务
-生成专业的Python可视化代码。
+生成专业的词云图代码，展示文本中的高频关键词。
 
 要求：
-1. 使用 matplotlib 或 seaborn
-2. 配色要专业（推荐使用 'tableau' 或 'seaborn' 调色板）
-3. 图表尺寸 (10, 6) 或 (12, 8)
-4. 包含图例、坐标轴标签
-5. 中文支持: plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']
+1. 使用 wordcloud 和 jieba 库
+2. 中文分词处理
+3. 停用词过滤（去掉"的"、"是"、"在"等常见词）
+4. 专业配色方案（推荐使用渐变色）
+5. 图表尺寸 (12, 8)
 6. 保存图片: plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
 
 输出JSON：
@@ -95,32 +211,57 @@ class CodeWizard(BaseAgent):
 }}
 ```"""
 
-    CODE_FIX_PROMPT = """你是一位Python专家，需要修复执行失败的代码。
+    # 桑基图专用 Prompt（生成 ECharts 配置）
+    SANKEY_PROMPT = """你是一位数据可视化专家，擅长流向图和桑基图制作。
 
-## 原始代码
-```python
-{code}
-```
+## 研究主题
+{topic}
 
-## 错误信息
-{error}
-
-## 标准输出（执行到报错前的输出）
-{stdout}
+## 流向数据
+{flow_data}
 
 ## 任务
-分析错误原因并修复代码。常见问题包括：
-1. 数据列名不匹配（使用 df.columns 查看实际列名）
-2. 数据类型问题（确保数值计算前转换类型）
-3. 空数据或缺失值（添加 .dropna() 或填充）
-4. 图表绘制问题（检查数据长度是否匹配）
+生成桑基图的 ECharts 配置，展示资金流向或产业链上下游关系。
+
+要求：
+1. 生成标准的 ECharts sankey 配置
+2. 节点颜色要有区分度
+3. 连线要有渐变效果
+4. 包含 tooltip 显示详情
 
 输出JSON：
 ```json
 {{
-    "error_analysis": "错误原因分析",
-    "fix_description": "修复说明",
-    "fixed_code": "修复后的完整Python代码"
+    "echarts_option": {{ ECharts 完整配置对象 }},
+    "chart_description": "图表说明"
+}}
+```"""
+
+    # 关系图专用 Prompt
+    NETWORK_PROMPT = """你是一位数据可视化专家，擅长关系图谱制作。
+
+## 研究主题
+{topic}
+
+## 关系数据
+{relation_data}
+
+## 任务
+生成关系图代码，展示实体之间的关联关系。
+
+要求：
+1. 使用 matplotlib 绘制网络图（或生成 ECharts graph 配置）
+2. 节点大小根据重要性调整
+3. 不同类型节点用不同颜色
+4. 边的粗细根据关系强度调整
+5. 添加节点标签
+6. 保存图片: plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
+
+输出JSON：
+```json
+{{
+    "code": "完整Python代码",
+    "chart_description": "图表说明"
 }}
 ```"""
 
@@ -128,7 +269,10 @@ class CodeWizard(BaseAgent):
     ALLOWED_MODULES = {
         'pandas', 'numpy', 'matplotlib', 'matplotlib.pyplot',
         'seaborn', 'datetime', 'math', 'statistics', 'json',
-        'collections', 're'
+        'collections', 're',
+        # 高级可视化
+        'wordcloud',      # 词云图
+        'jieba',          # 中文分词
     }
 
     # 禁止的操作（使用正则表达式匹配）
@@ -174,11 +318,16 @@ class CodeWizard(BaseAgent):
 
     async def process(self, state: ResearchState) -> ResearchState:
         """处理入口"""
+        self.logger.info(f"[CodeWizard] ========== process 开始 ==========")
+        self.logger.info(f"[CodeWizard] 当前 phase: {state['phase']}, data_points: {len(state['data_points'])}, outline: {len(state['outline'])}")
+
         if state["phase"] != ResearchPhase.ANALYZING.value:
             # 检查是否有需要分析的数据
             if len(state["data_points"]) >= 3:
                 state["phase"] = ResearchPhase.ANALYZING.value
+                self.logger.info(f"[CodeWizard] 数据点足够，设置 phase 为 ANALYZING")
             else:
+                self.logger.warning(f"[CodeWizard] ⚠️ 数据点不足 ({len(state['data_points'])} < 3)，跳过分析")
                 return state
 
         self.add_message(state, "thought", {
@@ -187,16 +336,22 @@ class CodeWizard(BaseAgent):
         })
 
         # 执行数据分析
+        self.logger.info(f"[CodeWizard] 开始执行 _analyze_data...")
         await self._analyze_data(state)
+        self.logger.info(f"[CodeWizard] _analyze_data 完成，当前 charts 数量: {len(state['charts'])}")
 
         # 生成图表
+        self.logger.info(f"[CodeWizard] 开始执行 _generate_charts...")
         await self._generate_charts(state)
+        self.logger.info(f"[CodeWizard] _generate_charts 完成，最终 charts 数量: {len(state['charts'])}")
 
+        self.logger.info(f"[CodeWizard] ========== process 结束 ==========")
         return state
 
     async def _analyze_data(self, state: ResearchState) -> None:
         """分析数据"""
         if not state["data_points"]:
+            self.logger.info("[CodeWizard] 没有数据点，跳过分析")
             return
 
         # 格式化数据点
@@ -209,28 +364,86 @@ class CodeWizard(BaseAgent):
             data_points="\n".join(data_summary)
         )
 
+        self.logger.info(f"[CodeWizard] 调用LLM生成分析代码，数据点数量: {len(state['data_points'])}")
+
         response = await self.call_llm(
             system_prompt="你是专业的数据分析师，擅长Python数据处理和可视化。",
             user_prompt=prompt,
             json_mode=True
         )
 
+        # ===== 详细日志: LLM原始响应 =====
+        self._save_debug_log("1_llm_response", response)
+        self.logger.info(f"[CodeWizard] LLM响应长度: {len(response)}, 前200字符: {response[:200]}")
+
         result = self.parse_json_response(response)
 
+        # ===== 详细日志: JSON解析结果 =====
+        self._save_debug_log("2_json_parsed", str(result))
+        self.logger.info(f"[CodeWizard] JSON解析结果: {type(result)}, keys: {result.keys() if isinstance(result, dict) else 'N/A'}")
+
         if result and result.get("code"):
+            code = result["code"]
+
+            # ===== 详细日志: 原始code字段 =====
+            self._save_debug_log("3_code_raw", repr(code) if isinstance(code, str) else str(code))
+            self.logger.info(f"[CodeWizard] 原始code类型: {type(code)}, 长度: {len(str(code))}")
+
+            # 确保 code 是字符串类型
+            if isinstance(code, list):
+                code = '\n'.join(str(c) for c in code)
+                self.logger.info(f"[CodeWizard] code是list，已转换为字符串")
+            elif not isinstance(code, str):
+                code = str(code)
+                self.logger.info(f"[CodeWizard] code不是字符串，已转换")
+
+            # ===== 详细日志: 清理前的code =====
+            self._save_debug_log("4_code_before_clean", code)
+
+            # 先进行基础清理（处理 \n, \[n] 等格式问题）
+            cleaned_code = self._clean_code(code)
+
+            # ===== 详细日志: 清理后的code =====
+            self._save_debug_log("5_code_after_clean", cleaned_code)
+            self.logger.info(f"[CodeWizard] 清理后code行数: {cleaned_code.count(chr(10)) + 1}")
+
+            # ===== 详细日志: 语法检查 =====
+            try:
+                compile(cleaned_code, '<string>', 'exec')
+                self.logger.info(f"[CodeWizard] ✅ 语法检查通过")
+                self._save_debug_log("6_syntax_check", "PASSED")
+            except SyntaxError as e:
+                self.logger.error(f"[CodeWizard] ❌ 语法检查失败: {e}")
+                self._save_debug_log("6_syntax_check", f"FAILED: {e}\n\nCode:\n{cleaned_code}")
+
+            # 验证清理后的代码是否有效（过滤掉明显的垃圾代码）
+            # 垃圾代码特征：太短、包含HTML片段、没有多行结构
+            if len(cleaned_code) < 50 or '">\\' in cleaned_code or cleaned_code.count('\n') < 3:
+                self.logger.warning(f"[CodeWizard] 检测到无效代码，跳过执行: {cleaned_code[:100]}...")
+                self._save_debug_log("7_validation", f"INVALID: too short or bad format")
+                return None
+
+            # 使用清理后的代码
+            code = cleaned_code
+
             # 发送代码事件
             self.add_message(state, "code", {
                 "agent": self.name,
                 "language": "python",
-                "code": result["code"],
+                "code": code,
                 "purpose": result.get("analysis_plan", "数据分析")
             })
 
+            self.logger.info(f"[CodeWizard] 开始执行代码...")
+
             # 执行代码（带自愈能力）
             execution_result = await self._execute_with_self_correction(
-                result["code"],
+                code,
                 state
             )
+
+            # ===== 详细日志: 执行结果 =====
+            self._save_debug_log("8_execution_result", str(execution_result))
 
             # 记录执行结果
             state["code_executions"].append({
@@ -251,6 +464,28 @@ class CodeWizard(BaseAgent):
                 "has_chart": len(execution_result.get("charts", [])) > 0,
                 "retries": execution_result.get("retries", 0)
             })
+
+            # 如果生成了图表，发送 chart SSE 事件
+            charts_generated = execution_result.get("charts", [])
+            if charts_generated:
+                for i, chart_b64 in enumerate(charts_generated):
+                    chart_entry = {
+                        "id": f"chart_analysis_{uuid.uuid4().hex[:8]}",
+                        "title": f"数据分析图表 {i+1}",
+                        "chart_type": "generated",
+                        "image_base64": chart_b64,
+                        "section_id": "analysis"
+                    }
+                    state["charts"].append(chart_entry)
+
+                    # 发送单个图表事件到前端
+                    self.add_message(state, "chart", {
+                        "agent": self.name,
+                        "title": chart_entry["title"],
+                        "chart_type": "generated",
+                        "image_base64": chart_b64
+                    })
+                    self.logger.info(f"[CodeWizard] Sent chart event: {chart_entry['title']}")
 
     async def _execute_with_self_correction(
         self,
@@ -309,8 +544,14 @@ class CodeWizard(BaseAgent):
             # 调用LLM修复代码
             fixed_result = await self._fix_code(current_code, error, stdout)
 
-            if fixed_result and fixed_result.get("fixed_code"):
-                current_code = fixed_result["fixed_code"]
+            if fixed_result and isinstance(fixed_result, dict) and fixed_result.get("fixed_code"):
+                fixed_code = fixed_result["fixed_code"]
+                # 确保是字符串
+                if isinstance(fixed_code, list):
+                    fixed_code = '\n'.join(str(c) for c in fixed_code)
+                elif not isinstance(fixed_code, str):
+                    fixed_code = str(fixed_code)
+                current_code = fixed_code
                 self.logger.info(f"Code fixed: {fixed_result.get('fix_description', 'N/A')}")
 
                 # 发送修复后的代码
@@ -360,14 +601,26 @@ class CodeWizard(BaseAgent):
         # 找出需要图表的章节
         chart_sections = [s for s in state["outline"] if s.get("requires_chart")]
 
-        for section in chart_sections[:2]:  # 最多生成2个图表
+        # 如果没有明确标记需要图表的章节，使用前2个章节作为备选
+        if not chart_sections and state["outline"]:
+            chart_sections = state["outline"][:2]
+            self.logger.info(f"[CodeWizard] 没有 requires_chart 章节，使用前2个章节生成图表")
+
+        self.logger.info(f"[CodeWizard] 开始生成图表，需要图表的章节数: {len(chart_sections)}")
+
+        for i, section in enumerate(chart_sections[:2]):  # 最多生成2个图表
+            self.logger.info(f"[CodeWizard] 处理章节 {i+1}/{min(len(chart_sections), 2)}: '{section['title']}'")
+
             # 收集相关数据
             section_data = self._get_section_data(state, section["id"])
+            self.logger.info(f"[CodeWizard] 章节 '{section['title']}' 数据量: {len(section_data)}")
 
             if not section_data:
+                self.logger.warning(f"[CodeWizard] ⚠️ 章节 '{section['title']}' 没有数据，跳过")
                 continue
 
             # 生成图表代码
+            self.logger.info(f"[CodeWizard] 调用 LLM 生成图表代码...")
             chart_config = await self._generate_chart_code(
                 topic=section["title"],
                 data=section_data,
@@ -376,17 +629,24 @@ class CodeWizard(BaseAgent):
             )
 
             if chart_config and chart_config.get("code"):
+                chart_code = chart_config["code"]
+                self._save_debug_log(f"chart_{section['id']}_raw", repr(chart_code))
+                self.logger.info(f"[CodeWizard] ✅ 生成图表代码成功，长度: {len(chart_code)}")
+
                 self.add_message(state, "code", {
                     "agent": self.name,
                     "language": "python",
-                    "code": chart_config["code"],
+                    "code": chart_code,
                     "purpose": f"生成图表: {section['title']}"
                 })
 
                 # 执行并获取图表
-                result = await self._execute_code(chart_config["code"])
+                self.logger.info(f"[CodeWizard] 执行图表代码...")
+                result = await self._execute_code(chart_code)
+                self._save_debug_log(f"chart_{section['id']}_result", str(result))
 
                 if result.get("charts"):
+                    self.logger.info(f"[CodeWizard] ✅ 图表执行成功，生成了 {len(result['charts'])} 个图表")
                     chart_entry = {
                         "id": f"chart_{uuid.uuid4().hex[:8]}",
                         "title": section["title"],
@@ -397,12 +657,19 @@ class CodeWizard(BaseAgent):
                         "section_id": section["id"]
                     }
                     state["charts"].append(chart_entry)
+                    self.logger.info(f"[CodeWizard] 图表已添加到 state['charts']，当前总数: {len(state['charts'])}")
 
                     self.add_message(state, "chart", {
                         "agent": self.name,
                         "title": section["title"],
-                        "image": result["charts"][0] if result["charts"] else None
+                        "chart_type": "generated",
+                        "image_base64": result["charts"][0] if result["charts"] else None
                     })
+                    self.logger.info(f"[CodeWizard] ✅ 已发送 chart SSE 事件: {section['title']}")
+                else:
+                    self.logger.warning(f"[CodeWizard] ⚠️ 图表执行失败或没有生成图表: success={result.get('success')}, error={result.get('error', 'N/A')[:100]}")
+            else:
+                self.logger.warning(f"[CodeWizard] ⚠️ LLM 没有返回有效的图表代码")
 
     def _get_section_data(self, state: ResearchState, section_id: str) -> List[Dict]:
         """获取章节相关数据"""
@@ -449,7 +716,8 @@ class CodeWizard(BaseAgent):
         """
         清理LLM生成的代码，修复常见格式问题
 
-        注意：需要区分「行分隔符」和「字符串内的\\n」
+        完全重写版本：使用字符级处理来正确区分行分隔符和字符串内的 \\n
+        这解决了 "unexpected character after line continuation character" 错误
         """
         import re
 
@@ -457,76 +725,257 @@ class CodeWizard(BaseAgent):
         code = re.sub(r'^```python\s*', '', code, flags=re.MULTILINE)
         code = re.sub(r'^```\s*$', '', code, flags=re.MULTILINE)
         code = re.sub(r'^```json\s*', '', code, flags=re.MULTILINE)
+        # 移除行末的 ``` (有时 LLM 会把结束标记粘在最后一行代码后面)
+        code = re.sub(r'```\s*$', '', code)
 
-        # 修复 f-string 引号嵌套问题
-        # 例如: f'{row['col']}' -> f"{row['col']}"
-        # 注意：只修复真正的 f-string，不影响普通字符串如 plt.rcParams['xxx']
-        def fix_fstring_quotes(line):
-            # 必须有 f' 开头才处理
-            if "f'" not in line:
-                return line
-
-            # 使用正则匹配 f'...{xxx['key']}...' 模式
-            # 匹配条件：f' 开头，内部 {...} 中有 ['...'] 字典访问
-            pattern = r"f'([^']*)\{([^}]*)\['([^']*)'\]([^}]*)\}([^']*)'"
-
-            def replace_match(m):
-                # 将外层单引号换成双引号，内部保持不变
-                return f'f"{m.group(1)}{{{m.group(2)}[\'{m.group(3)}\']{ m.group(4)}}}{m.group(5)}"'
-
-            return re.sub(pattern, replace_match, line)
-
-        # 如果代码已经是正常的多行格式，处理 f-string 问题后返回
+        # 如果代码已经是正常的多行格式（有真正的换行符，没有转义的 \n）
         if '\n' in code and '\\n' not in code:
             lines = code.split('\n')
-            cleaned_lines = [fix_fstring_quotes(line.rstrip()) for line in lines]
+            cleaned_lines = [line.rstrip() for line in lines]
             return '\n'.join(cleaned_lines).strip()
 
         # 处理 JSON 编码导致的转义问题
-        # 策略：先保护字符串内的 \n，再处理行分隔符，最后恢复
+        # 先处理 JSON 转义的引号 \" -> "
+        code = code.replace('\\"', '"')
 
-        # Step 1: 保护字符串字面量内的 \n (它们应该保持为 \\n)
-        # 匹配 f-string, 普通字符串中的 \n
-        protected_code = code
+        # 用一个不太可能出现的占位符
+        placeholder = "___NL_PLACEHOLDER___"
 
-        # 用占位符保护字符串内的 \\n
-        placeholder = "___NEWLINE_PLACEHOLDER___"
+        # 保护字符串字面量内的 \n
+        def protect_strings(text):
+            result = []
+            i = 0
+            while i < len(text):
+                # 检测 f-string, r-string 等前缀
+                if i < len(text) - 1 and text[i] in 'fFrRbBuU' and text[i+1] in '"\'':
+                    quote = text[i+1]
+                    result.append(text[i])
+                    result.append(quote)
+                    i += 2
+                    # 读取直到结束引号
+                    while i < len(text):
+                        if text[i] == '\\' and i + 1 < len(text):
+                            if text[i+1] == 'n':
+                                result.append(placeholder)
+                                i += 2
+                            elif text[i+1] == quote:
+                                result.append(text[i:i+2])
+                                i += 2
+                            elif text[i+1] == '\\':
+                                # 双反斜杠
+                                result.append(text[i:i+2])
+                                i += 2
+                            else:
+                                result.append(text[i])
+                                i += 1
+                        elif text[i] == quote:
+                            result.append(text[i])
+                            i += 1
+                            break
+                        else:
+                            result.append(text[i])
+                            i += 1
+                elif text[i] in '"\'':
+                    quote = text[i]
+                    result.append(quote)
+                    i += 1
+                    # 读取直到结束引号
+                    while i < len(text):
+                        if text[i] == '\\' and i + 1 < len(text):
+                            if text[i+1] == 'n':
+                                result.append(placeholder)
+                                i += 2
+                            elif text[i+1] == quote:
+                                result.append(text[i:i+2])
+                                i += 2
+                            elif text[i+1] == '\\':
+                                # 双反斜杠
+                                result.append(text[i:i+2])
+                                i += 2
+                            else:
+                                result.append(text[i])
+                                i += 1
+                        elif text[i] == quote:
+                            result.append(text[i])
+                            i += 1
+                            break
+                        else:
+                            result.append(text[i])
+                            i += 1
+                else:
+                    result.append(text[i])
+                    i += 1
+            return ''.join(result)
 
-        # 保护 print(f"...\n...") 这类情况
-        # 匹配引号内的 \\n 并替换为占位符
-        def protect_string_newlines(match):
-            s = match.group(0)
-            # 在字符串内部，\\n 应该保持，不应该变成真正的换行
-            return s.replace('\\n', placeholder)
+        protected = protect_strings(code)
 
-        # 匹配各种字符串（单引号、双引号、f-string等）
-        # 这是一个简化的匹配，处理常见情况
-        string_pattern = r'([fFrRbBuU]?)(["\'])((?:(?!\2)(?:\\.|[^\\]))*)\2'
-        protected_code = re.sub(string_pattern, protect_string_newlines, protected_code)
+        # 现在处理行分隔符
+        # 先处理各种异常格式（LLM 可能产生的非标准换行标记）
+        import re as re_module
 
-        # Step 2: 现在处理行分隔符（不在字符串内的 \\n）
-        # 多重转义：\\\\n -> \n, \\n -> \n
-        protected_code = protected_code.replace('\\\\\\\\n', '\n')
-        protected_code = protected_code.replace('\\\\n', '\n')
-        protected_code = protected_code.replace('\\n', '\n')
+        # 1. LaTeX 风格: \[10pt], \\[10pt], \[12pt] 等
+        protected = re_module.sub(r'\\\\?\[\d+pt\]\s*', '\n', protected)
 
-        # Step 3: 恢复字符串内的 \n
-        protected_code = protected_code.replace(placeholder, '\\n')
+        # 2. 中文标记: \[换行], \\[换行], [换行] 等
+        protected = re_module.sub(r'\\\\?\[换行\]\s*', '\n', protected)
+        protected = protected.replace('[换行]', '\n')
+
+        # 3. \[n] 或 \\[n] 格式
+        protected = protected.replace('\\\\[n]', '\n')
+        protected = protected.replace('\\[n]', '\n')
+
+        # 4. 修复注释后面粘连代码的问题
+        # 例如: "# 数据准备 data = [" 应该变成 "# 数据准备\ndata = ["
+        # 检测模式: # 注释文字 后面跟着 Python 关键字/变量赋值
+        protected = re_module.sub(
+            r'(#[^\n]*?)\s+(import |from |def |class |if |for |while |data\s*=|df\s*=|plt\.|fig\s*=|ax\s*=)',
+            r'\1\n\2',
+            protected
+        )
+
+        # 5. 修复多个语句粘连在一行的问题
+        # 例如: "...] plt.rcParams" 应该变成 "...]\nplt.rcParams"
+        # 只在特定结束符后分割，避免破坏 "fig, ax =" 这种模式
+        # 匹配: ) 或 ] 或 ' 或 " 或 True/False/None 后面跟空格和新语句
+        protected = re_module.sub(
+            r"([\]\)'\"]|True|False|None)\s+(plt\.|fig\s*,|fig\s*=|ax\.|df\s*=|data\s*=|global_data|china_data|line\d)",
+            r'\1\n\2',
+            protected
+        )
+
+        # \\\\n -> \n (四重转义)
+        # \\n -> \n (双重转义)
+        # \n -> 换行 (单重转义 - 这是行分隔符)
+        protected = protected.replace('\\\\\\\\n', '\n')
+        protected = protected.replace('\\\\n', '\n')
+        protected = protected.replace('\\n', '\n')
+
+        # 6. 修复 LLM 输出 \\n\\xxx 的问题（换行后多加了反斜杠）
+        # 例如: "False\\n\\data = [" 经过上面处理后变成 "False\n\data = ["
+        # 需要去掉行首的反斜杠（不是转义序列的情况）
+        # 匹配: 行首的反斜杠后跟变量名赋值，如 \data = [
+        protected = re_module.sub(r'^\\([a-zA-Z_])', r'\1', protected, flags=re_module.MULTILINE)
+        # 也处理不在行首但在空格后的情况
+        protected = re_module.sub(r'(\s)\\([a-zA-Z_][a-zA-Z0-9_]*\s*=)', r'\1\2', protected)
+
+        # 恢复字符串内的 \n
+        protected = protected.replace(placeholder, '\\n')
 
         # 修复方括号转义
-        protected_code = protected_code.replace('\\\\[', '[')
-        protected_code = protected_code.replace('\\\\]', ']')
-        protected_code = protected_code.replace('\\[', '[')
-        protected_code = protected_code.replace('\\]', ']')
+        protected = protected.replace('\\[', '[')
+        protected = protected.replace('\\]', ']')
 
-        # 修复缩进问题并应用 f-string 修复
-        lines = protected_code.split('\n')
+        # 修复行末的反斜杠问题和移除不需要的语句
+        lines = protected.split('\n')
         cleaned_lines = []
         for line in lines:
-            cleaned_lines.append(fix_fstring_quotes(line.rstrip()))
-        code = '\n'.join(cleaned_lines)
+            stripped = line.strip()
+            # 移除 import 语句（沙箱已预导入）
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                continue
+            # 移除 plt.rcParams 设置（沙箱已预设）
+            if 'plt.rcParams' in stripped:
+                continue
+            # 移除行末的 ```
+            line = re.sub(r'```\s*$', '', line)
 
-        return code.strip()
+            # ========== 核心修复：移除所有行尾的续行符（反斜杠） ==========
+            # 这是"手术刀式"修复，直接把行尾的 \ 及其后的空白删掉
+            # 对于 Python 字典 `data = {` 来说，后面没有 \ 也完全合法
+            # （Python 支持括号内的自然换行），所以这不会破坏代码逻辑
+            # 但能完美解决 "unexpected character after line continuation" 错误
+            line = re.sub(r'\\\s*$', '', line)
+
+            line = line.rstrip()
+            cleaned_lines.append(line)
+
+        result = '\n'.join(cleaned_lines).strip()
+        # 最终清理：移除开头和结尾可能残留的代码块标记
+        result = re.sub(r'^```\w*\s*', '', result)
+        result = re.sub(r'```\s*$', '', result)
+        return result.strip()
+
+    def _save_debug_info(self, raw_code: str, cleaned_code: str, error: Exception = None):
+        """保存调试信息到文件，方便排查问题"""
+        import os
+        from datetime import datetime
+
+        debug_dir = "/tmp/codewizard_debug"
+        os.makedirs(debug_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 保存原始代码
+        has_escaped_n = '\\n' in raw_code
+        has_real_newline = '\n' in raw_code
+        with open(f"{debug_dir}/raw_code_{timestamp}.txt", "w") as f:
+            f.write("=" * 60 + "\n")
+            f.write("原始代码分析\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"长度: {len(raw_code)} 字符\n")
+            f.write(f"包含 \\n 字面量: {has_escaped_n}\n")
+            f.write(f"包含真正换行: {has_real_newline}\n")
+            f.write("\n--- 原始代码 (repr) ---\n")
+            f.write(repr(raw_code))
+            f.write("\n\n--- 原始代码 (raw) ---\n")
+            f.write(raw_code)
+
+        # 保存清理后代码
+        with open(f"{debug_dir}/cleaned_code_{timestamp}.txt", "w") as f:
+            f.write("=" * 60 + "\n")
+            f.write("清理后代码\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"长度: {len(cleaned_code)} 字符\n")
+            f.write("\n--- 清理后代码 ---\n")
+            f.write(cleaned_code)
+
+            if error:
+                f.write("\n\n" + "=" * 60 + "\n")
+                f.write(f"语法错误: {error}\n")
+                if hasattr(error, 'lineno') and error.lineno:
+                    lines = cleaned_code.split('\n')
+                    f.write(f"错误行号: {error.lineno}\n")
+                    f.write("\n--- 问题代码上下文 ---\n")
+                    start = max(0, error.lineno - 3)
+                    end = min(len(lines), error.lineno + 2)
+                    for i in range(start, end):
+                        marker = ">>> " if i == error.lineno - 1 else "    "
+                        f.write(f"{marker}Line {i+1}: {repr(lines[i])}\n")
+
+        # 保存最新的调试文件路径（方便快速访问）
+        with open(f"{debug_dir}/latest.txt", "w") as f:
+            f.write(f"raw: {debug_dir}/raw_code_{timestamp}.txt\n")
+            f.write(f"cleaned: {debug_dir}/cleaned_code_{timestamp}.txt\n")
+            f.write(f"timestamp: {timestamp}\n")
+
+        self.logger.info(f"[CodeWizard] 调试信息已保存到 {debug_dir}/")
+
+    def _save_debug_log(self, step_name: str, content: str):
+        """
+        保存单步调试日志，便于追踪代码执行流程
+
+        每次运行会创建一个带时间戳的目录，所有步骤保存在同一目录下
+        """
+        import os
+        from datetime import datetime
+
+        # 使用实例变量保存当前调试会话的目录
+        if not hasattr(self, '_debug_session_dir'):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._debug_session_dir = f"/tmp/codewizard_debug/session_{timestamp}"
+            os.makedirs(self._debug_session_dir, exist_ok=True)
+            self.logger.info(f"[CodeWizard] 调试会话目录: {self._debug_session_dir}")
+
+        # 保存步骤日志
+        file_path = f"{self._debug_session_dir}/{step_name}.txt"
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(f"=== {step_name} ===\n")
+            f.write(f"时间: {datetime.now().isoformat()}\n")
+            f.write(f"长度: {len(content)} 字符\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(content)
+
+        self.logger.debug(f"[CodeWizard] 已保存: {file_path}")
 
     async def _execute_code(self, code: str) -> Dict[str, Any]:
         """
@@ -538,9 +987,36 @@ class CodeWizard(BaseAgent):
         - 隔离执行环境
         - 捕获输出和图表
         """
+        self.logger.info(f"[CodeWizard] _execute_code 开始，输入类型: {type(code)}")
+
+        # 确保 code 是字符串类型
+        if isinstance(code, list):
+            code = '\n'.join(str(c) for c in code)
+            self.logger.info(f"[CodeWizard] 输入是list，已转换为字符串")
+        elif not isinstance(code, str):
+            code = str(code)
+            self.logger.info(f"[CodeWizard] 输入非字符串，已转换")
+
+        raw_code = code  # 保存原始代码用于调试
+        self._save_debug_log("exec_1_input_raw", repr(raw_code))
+
         # 清理代码
         code = self._clean_code(code)
-        self.logger.debug(f"Cleaned code:\n{code[:500]}...")
+        self._save_debug_log("exec_2_after_clean", code)
+        self.logger.info(f"[CodeWizard] 清理后代码行数: {code.count(chr(10)) + 1}, 长度: {len(code)}")
+
+        # 语法预检查
+        syntax_error = None
+        try:
+            compile(code, '<string>', 'exec')
+            self.logger.info(f"[CodeWizard] ✅ 语法预检查: 通过")
+            self._save_debug_log("exec_3_syntax", "PASSED")
+        except SyntaxError as e:
+            syntax_error = e
+            self.logger.error(f"[CodeWizard] ❌ 语法预检查失败: {e}")
+            self._save_debug_log("exec_3_syntax", f"FAILED: {e}\n\n错误行: {e.lineno}\n\n代码:\n{code}")
+            # 保存调试信息
+            self._save_debug_info(raw_code, code, e)
 
         # 安全检查
         if not self._is_code_safe(code):
@@ -582,14 +1058,25 @@ class CodeWizard(BaseAgent):
         注意：这是一个简化的沙箱，生产环境应使用更安全的方案
         如 Docker 容器或专门的代码执行服务
         """
+        self.logger.info(f"[CodeWizard] _execute_in_sandbox 开始执行")
+        self._save_debug_log("sandbox_1_code_input", code)
+
         import matplotlib
         matplotlib.use('Agg')  # 非交互式后端
         import matplotlib.pyplot as plt
 
-        # 预导入允许的模块
+        # 预导入所有允许的模块
         import pandas as pd
         import numpy as np
         import seaborn as sns
+        import datetime
+        import math
+        import statistics
+        import json as json_module
+        import collections
+        import re as re_module
+
+        self.logger.info(f"[CodeWizard] 沙箱环境准备完成，matplotlib backend: {matplotlib.get_backend()}")
 
         # 白名单基础模块
         allowed_base_modules = [
@@ -664,7 +1151,7 @@ class CodeWizard(BaseAgent):
                 'input': lambda *args: '',  # 禁用 input
                 'open': None,  # 禁用 open
             },
-            # 直接提供模块引用
+            # 直接提供模块引用（无需import即可使用）
             'pd': pd,
             'np': np,
             'plt': plt,
@@ -672,6 +1159,13 @@ class CodeWizard(BaseAgent):
             'pandas': pd,
             'numpy': np,
             'matplotlib': matplotlib,
+            # 额外的常用模块
+            'datetime': datetime,
+            'math': math,
+            'statistics': statistics,
+            'json': json_module,
+            'collections': collections,
+            're': re_module,
         }
 
         # 捕获输出
@@ -680,30 +1174,82 @@ class CodeWizard(BaseAgent):
         charts = []
 
         try:
+            # 预设中文字体（在 exec 之前设置一次）
+            # macOS: Heiti TC, STHeiti, PingFang HK, Hiragino Sans GB, Songti SC
+            # Windows: SimHei, Microsoft YaHei
+            # 通用: Arial Unicode MS
+            plt.rcParams['font.sans-serif'] = [
+                'Heiti TC', 'STHeiti', 'PingFang HK', 'Hiragino Sans GB',
+                'SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans'
+            ]
+            plt.rcParams['axes.unicode_minus'] = False
+
+            self.logger.info(f"[CodeWizard] 开始 exec()...")
+            self._save_debug_log("sandbox_2_before_exec", f"即将执行代码，长度: {len(code)} 字符")
+
             with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
                 exec(code, exec_globals)
 
+            self.logger.info(f"[CodeWizard] exec() 完成")
+
+            # exec 之后再次强制设置字体（防止 LLM 代码里的 sns.set() 等覆盖）
+            plt.rcParams['font.sans-serif'] = [
+                'Heiti TC', 'STHeiti', 'PingFang HK', 'Hiragino Sans GB',
+                'SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans'
+            ]
+            plt.rcParams['axes.unicode_minus'] = False
+
             # 检查是否生成了图表
             fig = plt.gcf()
+            stdout_value = stdout_capture.getvalue()
+            stderr_value = stderr_capture.getvalue()
+
+            self.logger.info(f"[CodeWizard] exec() 输出: stdout={len(stdout_value)}字符, stderr={len(stderr_value)}字符")
+            self._save_debug_log("sandbox_3_exec_output", f"stdout:\n{stdout_value}\n\nstderr:\n{stderr_value}")
+
             if fig.get_axes():
+                self.logger.info(f"[CodeWizard] 检测到图表，开始捕获...")
+                # 重新应用字体到当前图表的所有文本元素
+                chinese_fonts = ['Heiti TC', 'STHeiti', 'PingFang HK', 'Hiragino Sans GB', 'Arial Unicode MS']
+                for ax in fig.get_axes():
+                    for text in ax.get_xticklabels() + ax.get_yticklabels():
+                        text.set_fontfamily(chinese_fonts)
+                    if ax.get_title():
+                        ax.title.set_fontfamily(chinese_fonts)
+                    if ax.get_xlabel():
+                        ax.xaxis.label.set_fontfamily(chinese_fonts)
+                    if ax.get_ylabel():
+                        ax.yaxis.label.set_fontfamily(chinese_fonts)
+
                 buf = io.BytesIO()
                 fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
                 buf.seek(0)
-                charts.append(base64.b64encode(buf.read()).decode('utf-8'))
+                chart_b64 = base64.b64encode(buf.read()).decode('utf-8')
+                charts.append(chart_b64)
                 plt.close(fig)
+                self.logger.info(f"[CodeWizard] 图表捕获成功，base64长度: {len(chart_b64)}")
+            else:
+                self.logger.info(f"[CodeWizard] 未检测到图表")
 
-            return {
+            result = {
                 "success": True,
-                "output": stdout_capture.getvalue(),
-                "error": stderr_capture.getvalue() if stderr_capture.getvalue() else None,
+                "output": stdout_value,
+                "error": stderr_value if stderr_value else None,
                 "charts": charts
             }
+            self._save_debug_log("sandbox_4_result", f"success=True, charts={len(charts)}, output_len={len(stdout_value)}")
+            self.logger.info(f"[CodeWizard] ✅ 沙箱执行成功，图表数: {len(charts)}")
+            return result
 
         except Exception as e:
             plt.close('all')
+            stdout_value = stdout_capture.getvalue()
+            error_msg = str(e)
+            self.logger.error(f"[CodeWizard] ❌ 沙箱执行失败: {error_msg}")
+            self._save_debug_log("sandbox_4_error", f"error: {error_msg}\n\nstdout:\n{stdout_value}\n\ntraceback:\n{repr(e)}")
             return {
                 "success": False,
-                "output": stdout_capture.getvalue(),
-                "error": str(e),
+                "output": stdout_value,
+                "error": error_msg,
                 "charts": []
             }

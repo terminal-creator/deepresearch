@@ -2,6 +2,7 @@ import IconImage from '@/assets/chat/image.svg'
 import IconSource from '@/assets/chat/source.svg'
 import IconThink from '@/assets/chat/think.svg'
 import Markdown from '@/components/markdown'
+import StockCard from '@/components/stock-card'
 import host from '@/configs/data/host'
 import { CheckOutlined, BulbOutlined, ThunderboltOutlined, EyeOutlined } from '@ant-design/icons'
 import classNames from 'classnames'
@@ -174,6 +175,80 @@ const 思考过程 = (props: { item: API.ChatItem }) => {
   )
 }
 
+// 渲染观察内容的辅助函数
+const renderObservationContent = (content: string) => {
+  const lines = content.split('\n')
+  return lines.map((line, i) => {
+    // 解析带有统计数据的行
+    const sectionMatch = line.match(/^📑\s*(.+)$/)
+    const factsMatch = line.match(/^事实:\s*(\d+)\s*条$/)
+    const dataPointsMatch = line.match(/^数据点:\s*(\d+)\s*个$/)
+    const dedupeMatch = line.match(/^去重:\s*(\d+)\s*条$/)
+    const qualityMatch = line.match(/^来源质量:\s*(.+)$/)
+    const insightsMatch = line.match(/^洞察:$/)
+    const insightItemMatch = line.match(/^\s+•\s*(.+)$/)
+
+    if (sectionMatch) {
+      return (
+        <div key={i} className={styles['obs-section']}>
+          <span className={styles['obs-section-icon']}>📑</span>
+          <span className={styles['obs-section-name']}>{sectionMatch[1]}</span>
+        </div>
+      )
+    }
+    if (factsMatch) {
+      return (
+        <div key={i} className={styles['obs-stat']}>
+          <span className={styles['obs-stat-label']}>事实</span>
+          <span className={styles['obs-stat-value']}>{factsMatch[1]}</span>
+          <span className={styles['obs-stat-unit']}>条</span>
+        </div>
+      )
+    }
+    if (dataPointsMatch) {
+      return (
+        <div key={i} className={styles['obs-stat']}>
+          <span className={styles['obs-stat-label']}>数据点</span>
+          <span className={styles['obs-stat-value']}>{dataPointsMatch[1]}</span>
+          <span className={styles['obs-stat-unit']}>个</span>
+        </div>
+      )
+    }
+    if (dedupeMatch) {
+      return (
+        <div key={i} className={styles['obs-stat']}>
+          <span className={styles['obs-stat-label']}>去重</span>
+          <span className={styles['obs-stat-value']}>{dedupeMatch[1]}</span>
+          <span className={styles['obs-stat-unit']}>条</span>
+        </div>
+      )
+    }
+    if (qualityMatch) {
+      return (
+        <div key={i} className={styles['obs-quality']}>
+          <div className={styles['obs-quality-label']}>来源质量</div>
+          <div className={styles['obs-quality-value']}>{qualityMatch[1]}</div>
+        </div>
+      )
+    }
+    if (insightsMatch) {
+      return (
+        <div key={i} className={styles['obs-insights-title']}>洞察</div>
+      )
+    }
+    if (insightItemMatch) {
+      return (
+        <div key={i} className={styles['obs-insight-item']}>
+          <span className={styles['obs-insight-bullet']}>•</span>
+          <span>{insightItemMatch[1]}</span>
+        </div>
+      )
+    }
+    // 默认渲染
+    return line ? <div key={i}>{line}</div> : null
+  })
+}
+
 // ReAct 智能推理过程组件
 const ReAct过程 = (props: { item: API.ChatItem; onStepClick?: (stepId: string) => void }) => {
   const { item, onStepClick } = props
@@ -252,9 +327,11 @@ const ReAct过程 = (props: { item: API.ChatItem; onStepClick?: (stepId: string)
                 typeof step.content === 'string' && step.content
                   ? (step.type === 'plan'
                       ? <Markdown className={styles['react-step-markdown']} value={step.content} />
-                      : step.content.split('\n').map((line, i) => (
-                          <div key={i}>{line}</div>
-                        ))
+                      : step.type === 'observation'
+                        ? renderObservationContent(step.content)
+                        : step.content.split('\n').map((line, i) => (
+                            <div key={i}>{line}</div>
+                          ))
                     )
                   : typeof step.content === 'object'
                     ? <pre>{JSON.stringify(step.content, null, 2)}</pre>
@@ -344,6 +421,9 @@ export function Result(props: {
 
         {/* 数据洞察 */}
         {item.insights?.length ? <数据洞察 item={item} /> : null}
+
+        {/* 股票实时行情 */}
+        {item.stockQuote ? <StockCard data={item.stockQuote} /> : null}
 
         {item.think ? (
           <Markdown

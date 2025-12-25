@@ -43,8 +43,9 @@ export interface ChartConfig {
   id: string
   title: string
   subtitle?: string
-  type: 'line' | 'bar' | 'pie' | 'horizontal_bar' | 'radar'
-  echarts_option: Record<string, unknown>
+  type: 'line' | 'bar' | 'pie' | 'horizontal_bar' | 'radar' | 'sankey' | 'wordcloud' | 'graph'
+  echarts_option?: Record<string, unknown>
+  image_base64?: string  // matplotlib 生成的 base64 图片
 }
 
 export interface ResearchDetailData {
@@ -90,8 +91,14 @@ const stepLabels: Record<ResearchStep['type'], string> = {
 export default function ResearchDetail({ data, steps = [], onStepClick, onClose }: ResearchDetailProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('results')
 
+  console.log(`[ResearchDetail] 渲染，data=${data ? 'exists' : 'null'}, steps=${steps.length}`)
+  if (data) {
+    console.log(`[ResearchDetail] data 详情: searchResults=${data.searchResults?.length || 0}, charts=${data.charts?.length || 0}, hasGraph=${!!data.knowledgeGraph}, hasReport=${!!data.streamingReport}`)
+  }
+
   // 空状态
   if (!data && steps.length === 0) {
+    console.log(`[ResearchDetail] 显示空状态`)
     return (
       <div className={styles.panel}>
         <div className={styles.empty}>

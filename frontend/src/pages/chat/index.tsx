@@ -52,6 +52,8 @@ export default function Index() {
   const researchStepsRef = useRef<ResearchStep[]>([])  // 保持最新引用，供事件处理器使用
   const [selectedResearchDetail, setSelectedResearchDetail] = useState<ResearchDetailData | null>(null)
   const researchDetailsRef = useRef<Map<string, ResearchDetailData>>(new Map())
+  // 版本计数器 - 用于触发 aggregatedResearchData 重新计算
+  const [researchDataVersion, setResearchDataVersion] = useState(0)
 
   // 同步 researchSteps 到 ref
   useEffect(() => {
@@ -274,6 +276,7 @@ export default function Index() {
               setResearchSteps([])
               researchDetailsRef.current.clear()
               setSelectedResearchDetail(null)
+              setResearchDataVersion(0)
             }
 
             // V2 研究步骤事件 (新增)
@@ -299,10 +302,11 @@ export default function Index() {
                 const existing = prev.find(s => s.type === stepType)
                 let newSteps: ResearchStep[]
                 if (existing) {
-                  // 更新现有步骤
+                  // 更新现有步骤（保留原有ID，避免researchDetailsRef查找失败）
                   newSteps = prev.map(s => s.type === stepType ? {
                     ...s,
-                    id: stepId,
+                    // 只有当新stepId是后端明确提供的（不是自动生成的）时才更新ID
+                    id: content.step_id ? stepId : s.id,
                     status: content.status,
                     stats,
                   } : s)
@@ -371,8 +375,9 @@ export default function Index() {
                       ? { ...s, stats: { ...s.stats, resultsCount: detail.searchResults?.length || 0 } }
                       : s
                   ))
-                  // 自动选中
+                  // 自动选中并触发聚合数据更新
                   setSelectedResearchDetail({ ...detail })
+                  setResearchDataVersion(v => v + 1)
                 }
               }
             }
@@ -393,19 +398,28 @@ export default function Index() {
                     stats: content.stats || graph.stats,
                   }
                   setSelectedResearchDetail({ ...detail })
+                  setResearchDataVersion(v => v + 1)
                 }
               }
             }
 
-            // V2 图表事件
+            // V2 图表事件 (DataAnalyst 发送的 ECharts 图表)
             if (json.type === 'charts') {
               const content = json.content || json
               const charts = content.charts || []
+              console.log(`[前端] 收到 charts 事件，图表数量: ${charts.length}`)
+              charts.forEach((c: any, i: number) => {
+                console.log(`[前端] 图表 ${i+1}: id=${c.id}, title=${c.title}, has_echarts=${!!c.echarts_option}, has_image=${!!c.image_base64}`)
+              })
+
               // 找到 analyzing 步骤（使用 ref）
               const currentSteps = researchStepsRef.current
               const analyzingStep = currentSteps.find(s => s.type === 'analyzing')
+              console.log(`[前端] 查找 analyzing 步骤: ${analyzingStep ? `找到 id=${analyzingStep.id}` : '未找到'}`)
+
               if (analyzingStep) {
                 const detail = researchDetailsRef.current.get(analyzingStep.id)
+                console.log(`[前端] 查找 detail: ${detail ? '找到' : '未找到'}`)
                 if (detail) {
                   detail.charts = charts
                   // 更新步骤统计
@@ -415,6 +429,8 @@ export default function Index() {
                       : s
                   ))
                   setSelectedResearchDetail({ ...detail })
+                  setResearchDataVersion(v => v + 1)
+                  console.log(`[前端] ✅ charts 已存储到 detail，触发更新`)
                 }
               }
               // 同时保存到 target.charts 供报告使用
@@ -422,6 +438,7 @@ export default function Index() {
                 target.charts = []
               }
               target.charts.push(...charts)
+              console.log(`[前端] target.charts 总数: ${target.charts.length}`)
             }
 
             // V2 阶段切换事件
@@ -468,6 +485,25 @@ export default function Index() {
                       status: 'running' as const,
                     }]
                     researchStepsRef.current = newSteps
+
+                    // 同时初始化 researchDetail（用于存储 streamingReport 等）
+                    if (!researchDetailsRef.current.has(stepId)) {
+                      const newDetail: ResearchDetailData = {
+                        stepId,
+                        stepType,
+                        title: phaseLabels[json.phase] || json.phase,
+                        subtitle: extractContent(json.content) || '',
+                        searchResults: [],
+                        charts: [],
+                        streamingReport: '',
+                      }
+                      researchDetailsRef.current.set(stepId, newDetail)
+                      // 对于 writing 步骤，自动选中以便显示过程报告
+                      if (stepType === 'writing') {
+                        setSelectedResearchDetail({ ...newDetail })
+                      }
+                    }
+
                     return newSteps
                   }
                   return prev
@@ -518,6 +554,7 @@ export default function Index() {
                   if (detail) {
                     detail.streamingReport = json.final_report
                     setSelectedResearchDetail({ ...detail })
+                    setResearchDataVersion(v => v + 1)
                   }
                 }
               }
@@ -665,18 +702,105 @@ export default function Index() {
                 content: `✍️ 章节「${content.section_title || '未知'}」撰写完成\n字数: ${content.word_count || 0}\n要点: ${(content.key_points || []).join('、')}`,
                 timestamp: Date.now(),
               })
+            } else if (json.type === 'section_content') {
+              // V2 章节内容事件 - 用于"过程报告"tab的流式显示
+              const content = json.content || json
+              const sectionContent = content.content || ''
+              const sectionTitle = content.section_title || ''
+
+              if (sectionContent) {
+                console.log(`section_content 收到章节「${sectionTitle}」，长度:`, sectionContent.length)
+
+                // 更新研究详情中的 streamingReport（累加模式）
+                const currentSteps = researchStepsRef.current
+                let writingStep = currentSteps.find(s => s.type === 'writing' || s.type === 'generating')
+
+                // 如果没有找到写作步骤，创建一个（兜底逻辑）
+                if (!writingStep) {
+                  console.log('section_content: 未找到写作步骤，创建兜底步骤')
+                  const fallbackStepId = `step_writing_fallback_${Date.now()}`
+                  const newStep: ResearchStep = {
+                    id: fallbackStepId,
+                    type: 'writing',
+                    title: '✍️ 写作阶段',
+                    subtitle: '撰写研究报告',
+                    status: 'running',
+                  }
+                  setResearchSteps(prev => {
+                    const updated = [...prev, newStep]
+                    researchStepsRef.current = updated
+                    return updated
+                  })
+                  writingStep = newStep
+                }
+
+                // 获取或创建详情
+                let detail = researchDetailsRef.current.get(writingStep.id)
+                if (!detail) {
+                  console.log(`section_content: 未找到详情，创建: ${writingStep.id}`)
+                  detail = {
+                    stepId: writingStep.id,
+                    stepType: 'writing',
+                    title: '写作阶段',
+                    streamingReport: '',
+                    searchResults: [],
+                    charts: [],
+                  }
+                  researchDetailsRef.current.set(writingStep.id, detail)
+                }
+
+                // 累加章节内容，用分隔符分开
+                const existingContent = detail.streamingReport || ''
+                const newContent = existingContent
+                  ? `${existingContent}\n\n## ${sectionTitle}\n\n${sectionContent}`
+                  : `## ${sectionTitle}\n\n${sectionContent}`
+                detail.streamingReport = newContent
+                setSelectedResearchDetail({ ...detail })
+                setResearchDataVersion(v => v + 1)
+
+                // 同时添加到 reactSteps
+                if (!target.reactSteps) {
+                  target.reactSteps = []
+                }
+                target.reactSteps.push({
+                  step: target.reactSteps.length + 1,
+                  type: 'observation',
+                  content: `✍️ 章节「${sectionTitle}」已写入过程报告\n字数: ${sectionContent.length}\n要点: ${(content.key_points || []).slice(0, 2).join('、') || '无'}`,
+                  timestamp: Date.now(),
+                })
+              }
             } else if (json.type === 'report_draft') {
               // V2 报告草稿完成事件
               if (!target.reactSteps) {
                 target.reactSteps = []
               }
-              const content = json.content || json
+              const eventContent = json.content || json
+              const reportContent = typeof eventContent === 'string' ? eventContent : eventContent.content || ''
+
               target.reactSteps.push({
                 step: target.reactSteps.length + 1,
                 type: 'observation',
-                content: `📝 研究报告撰写完成\n字数: ${content.word_count || 0}\n引用数: ${content.references_count || 0}`,
+                content: `📝 研究报告撰写完成\n字数: ${eventContent.word_count || reportContent.length || 0}\n引用数: ${eventContent.references_count || 0}`,
                 timestamp: Date.now(),
               })
+
+              // 存储报告内容到 streamingReport 用于"过程报告"tab显示
+              if (reportContent) {
+                console.log('report_draft 收到报告内容，长度:', reportContent.length)
+                // 更新研究详情中的 streamingReport
+                const currentSteps = researchStepsRef.current
+                const writingStep = currentSteps.find(s => s.type === 'writing' || s.type === 'generating')
+                if (writingStep) {
+                  const detail = researchDetailsRef.current.get(writingStep.id)
+                  if (detail) {
+                    detail.streamingReport = reportContent
+                    setSelectedResearchDetail({ ...detail })
+                    setResearchDataVersion(v => v + 1)
+                  }
+                }
+                // 同时设置为聊天消息内容
+                target.content = reportContent
+              }
 
               // 标记写作步骤完成
               setResearchSteps(prev => prev.map(s =>
@@ -729,15 +853,69 @@ export default function Index() {
                 timestamp: Date.now(),
               })
             } else if (json.type === 'chart') {
+              // 解包 content（后端将数据包在 content 里）
+              const content = json.content || json
+              console.log(`[前端] 收到 chart 事件 (单个图表)`)
+              console.log(`[前端] chart 内容: title=${content.title}, has_echarts=${!!content.echarts_option}, has_image=${!!(content.image || content.image_base64)}`)
+
+              // 构建图表对象
+              const chartObj = {
+                id: uniqueId('chart_'),
+                type: content.chart_type || 'generated',
+                title: content.title || '数据图表',
+                echarts_option: content.echarts_option,
+                image_base64: content.image || content.image_base64,
+                data: content.data,
+              }
+
+              // 存入 target.charts（供报告使用）
               if (!target.charts) {
                 target.charts = []
               }
-              target.charts.push({
-                type: json.chart_type || json.type,
-                title: json.title || '数据图表',
-                echarts_option: json.echarts_option,
-                data: json.data,
-              })
+              target.charts.push(chartObj)
+              console.log(`[前端] 图表已添加到 target.charts，总数: ${target.charts.length}`)
+
+              // 同时存入 research detail（供可视化面板使用）
+              const currentSteps = researchStepsRef.current
+              const analyzingStep = currentSteps.find(s => s.type === 'analyzing')
+              console.log(`[前端] 查找 analyzing 步骤: ${analyzingStep ? `找到 id=${analyzingStep.id}` : '未找到'}`)
+
+              if (analyzingStep) {
+                const detail = researchDetailsRef.current.get(analyzingStep.id)
+                console.log(`[前端] 查找 detail: ${detail ? '找到' : '未找到'}`)
+                if (detail) {
+                  if (!detail.charts) {
+                    detail.charts = []
+                  }
+                  detail.charts.push(chartObj)
+                  setResearchSteps(prev => prev.map(s =>
+                    s.id === analyzingStep.id
+                      ? { ...s, stats: { ...s.stats, chartsCount: detail.charts?.length || 0 } }
+                      : s
+                  ))
+                  setSelectedResearchDetail({ ...detail })
+                  setResearchDataVersion(v => v + 1)
+                  console.log(`[前端] ✅ chart 已存储到 detail.charts，总数: ${detail.charts.length}`)
+                }
+              } else {
+                console.warn(`[前端] ⚠️ 未找到 analyzing 步骤，图表可能无法显示在可视化面板`)
+              }
+            } else if (json.type === 'stock_quote') {
+              // 股票实时行情
+              const content = json.content || json
+              target.stockQuote = {
+                code: content.code,
+                name: content.name,
+                price: content.price,
+                change: content.change,
+                change_percent: content.change_percent,
+                high: content.high,
+                low: content.low,
+                volume: content.volume,
+                turnover: content.turnover,
+                open: content.open,
+                prev_close: content.prev_close,
+              }
             } else if (json.type === 'data_insight') {
               if (!target.insights) {
                 target.insights = []
@@ -918,13 +1096,66 @@ export default function Index() {
   // 判断是否在深度研究模式（只要是 Deepsearch 类型就启用宽布局）
   const isDeepResearchMode = currentChatItem?.type === ChatType.Deepsearch
 
+  // 聚合所有研究步骤的数据，用于在tab中显示完整信息
+  const aggregatedResearchData = useMemo(() => {
+    console.log(`[前端] 计算 aggregatedResearchData, isDeepResearchMode=${isDeepResearchMode}, detailsSize=${researchDetailsRef.current.size}, version=${researchDataVersion}`)
+
+    if (!isDeepResearchMode || researchDetailsRef.current.size === 0) {
+      console.log(`[前端] 跳过聚合: isDeepResearchMode=${isDeepResearchMode}, size=${researchDetailsRef.current.size}`)
+      return null
+    }
+
+    // 从所有步骤中收集数据
+    let allSearchResults: ResearchDetailData['searchResults'] = []
+    let knowledgeGraph: ResearchDetailData['knowledgeGraph'] = undefined
+    let allCharts: ResearchDetailData['charts'] = []
+    let streamingReport = ''
+
+    researchDetailsRef.current.forEach((detail, stepId) => {
+      console.log(`[前端] 聚合步骤 ${stepId}: searchResults=${detail.searchResults?.length || 0}, charts=${detail.charts?.length || 0}, hasGraph=${!!detail.knowledgeGraph}, hasReport=${!!detail.streamingReport}`)
+
+      // 收集搜索结果
+      if (detail.searchResults && detail.searchResults.length > 0) {
+        allSearchResults = [...allSearchResults!, ...detail.searchResults]
+      }
+      // 取最新的知识图谱
+      if (detail.knowledgeGraph) {
+        knowledgeGraph = detail.knowledgeGraph
+      }
+      // 收集图表
+      if (detail.charts && detail.charts.length > 0) {
+        allCharts = [...allCharts!, ...detail.charts]
+      }
+      // 取最新的流式报告
+      if (detail.streamingReport) {
+        streamingReport = detail.streamingReport
+      }
+    })
+
+    console.log(`[前端] 聚合结果: searchResults=${allSearchResults.length}, charts=${allCharts.length}, hasGraph=${!!knowledgeGraph}, hasReport=${!!streamingReport}`)
+
+    // 创建聚合的数据对象
+    const aggregated: ResearchDetailData = {
+      stepId: selectedResearchDetail?.stepId || 'aggregated',
+      stepType: selectedResearchDetail?.stepType || 'aggregated',
+      title: selectedResearchDetail?.title || '研究详情',
+      subtitle: selectedResearchDetail?.subtitle,
+      searchResults: allSearchResults,
+      knowledgeGraph,
+      charts: allCharts,
+      streamingReport,
+    }
+
+    return aggregated
+  }, [isDeepResearchMode, selectedResearchDetail, researchSteps, researchDataVersion])  // researchSteps/version 变化时重新计算
+
   // 确定右侧面板显示内容
   const rightPanelContent = useMemo(() => {
     // 新版: 深度研究模式，显示研究详情面板
     if (isDeepResearchMode) {
       return (
         <ResearchDetail
-          data={selectedResearchDetail}
+          data={aggregatedResearchData}
           steps={researchSteps}
           onStepClick={handleResearchStepClick}
           onClose={() => setSelectedResearchDetail(null)}
@@ -944,7 +1175,7 @@ export default function Index() {
       )
     }
     return null
-  }, [currentChatItem, selectedStepDetail, isDeepResearchMode, selectedResearchDetail, researchSteps, handleResearchStepClick])
+  }, [currentChatItem, selectedStepDetail, isDeepResearchMode, aggregatedResearchData, researchSteps, handleResearchStepClick])
 
   return (
     <ComPageLayout

@@ -293,10 +293,14 @@ class DataAnalyst(BaseAgent):
 
         if charts:
             state["charts"].extend(charts)
+            self.logger.info(f"[DataAnalyst] 生成了 {len(charts)} 个 ECharts 图表，准备发送 charts 事件")
+            for i, chart in enumerate(charts):
+                self.logger.info(f"[DataAnalyst] 图表 {i+1}: id={chart.get('id')}, title={chart.get('title')}, has_echarts_option={bool(chart.get('echarts_option'))}")
             # 发送图表事件
             self.add_message(state, "charts", {
                 "charts": charts
             })
+            self.logger.info(f"[DataAnalyst] ✅ charts 事件已发送")
 
         # 发送完成事件
         self.add_message(state, "research_step", {
@@ -392,7 +396,7 @@ class DataAnalyst(BaseAgent):
 
     async def _generate_charts(self, state: ResearchState, extracted_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """生成可视化图表"""
-        self.logger.info("Generating visualization charts...")
+        self.logger.info("[DataAnalyst] ========== 开始生成 ECharts 可视化图表 ==========")
 
         # 准备数据
         data_for_charts = {
@@ -407,8 +411,10 @@ class DataAnalyst(BaseAgent):
                      len(data_for_charts["time_series"]) +
                      len(data_for_charts["distributions"]))
 
+        self.logger.info(f"[DataAnalyst] 图表数据统计: data_points={len(data_for_charts['data_points'])}, time_series={len(data_for_charts['time_series'])}, distributions={len(data_for_charts['distributions'])}, total={total_data}")
+
         if total_data == 0:
-            self.logger.info("No data available for charts")
+            self.logger.warning("[DataAnalyst] ⚠️ 没有足够数据生成图表，跳过")
             return []
 
         prompt = self.CHART_GENERATION_PROMPT.format(

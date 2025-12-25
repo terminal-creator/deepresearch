@@ -3,6 +3,10 @@
 // ============================================
 
 .chat-message-result {
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+
   .chat-message-result__think {
     margin-top: 12px;
     color: #888;
@@ -213,6 +217,9 @@
   background: #fff;
   border-radius: 12px;
   border: 1px solid rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .react-title {
@@ -236,6 +243,9 @@
   transition: all 0.2s ease;
   background: #fafafa;
   border: 1px solid transparent;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 
   &--plan {
     border-left: 2px solid #d0d0d0;
@@ -333,6 +343,9 @@
   line-height: 1.7;
   color: #555;
   word-break: break-word;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .react-step-markdown {
@@ -373,13 +386,101 @@
   background: #fafafa;
   border-radius: 6px;
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.6;
   overflow-x: auto;
-  max-height: 150px;
+  max-height: 400px;
   overflow-y: auto;
   color: #555;
   border: 1px solid rgba(0, 0, 0, 0.04);
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+// 观察内容样式 - 简洁风格
+.obs-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.obs-section-icon {
+  font-size: 14px;
+}
+
+.obs-section-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.obs-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 16px;
+  margin-bottom: 4px;
+}
+
+.obs-stat-label {
+  font-size: 12px;
+  color: #888;
+}
+
+.obs-stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.obs-stat-unit {
+  font-size: 11px;
+  color: #999;
+}
+
+.obs-quality {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.obs-quality-label {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.obs-quality-value {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #555;
+}
+
+.obs-insights-title {
+  margin-top: 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+}
+
+.obs-insight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding-left: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #555;
+}
+
+.obs-insight-bullet {
+  color: #999;
+  flex-shrink: 0;
 }
 
 // 数据洞察样式 - Premium Design

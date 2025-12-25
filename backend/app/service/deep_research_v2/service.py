@@ -13,6 +13,17 @@ from datetime import datetime
 
 from .graph import DeepResearchGraph
 
+# 导入配置
+try:
+    from config.llm_config import get_config
+except ImportError:
+    try:
+        from app.config.llm_config import get_config
+    except ImportError:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from config.llm_config import get_config
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("DeepResearchV2Service")
 
@@ -33,26 +44,31 @@ class DeepResearchV2Service:
         llm_api_key: Optional[str] = None,
         llm_base_url: Optional[str] = None,
         search_api_key: Optional[str] = None,
-        model: str = "qwen-max",
-        max_iterations: int = 3
+        model: Optional[str] = None,
+        max_iterations: Optional[int] = None
     ):
         """
         初始化服务
 
-        Args:
-            llm_api_key: LLM API 密钥（默认从环境变量读取）
-            llm_base_url: LLM API 基础 URL（默认从环境变量读取）
-            search_api_key: 搜索 API 密钥（默认从环境变量读取）
-            model: 模型名称
-            max_iterations: 最大迭代次数
-        """
-        self.llm_api_key = llm_api_key or os.getenv("DASHSCOPE_API_KEY", "")
-        self.llm_base_url = llm_base_url or os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        self.search_api_key = search_api_key or os.getenv("BOCHA_API_KEY", "")
-        self.model = model
-        self.max_iterations = max_iterations
+        所有参数都是可选的，会从配置文件读取默认值
 
-        # 创建工作流图
+        Args:
+            llm_api_key: LLM API 密钥（可选，默认从配置读取）
+            llm_base_url: LLM API 基础 URL（可选，默认从配置读取）
+            search_api_key: 搜索 API 密钥（可选，默认从配置读取）
+            model: 默认模型名称（可选，默认从配置读取）
+            max_iterations: 最大迭代次数（可选，默认从配置读取）
+        """
+        # 获取配置
+        config = get_config()
+
+        self.llm_api_key = llm_api_key or config.api_key
+        self.llm_base_url = llm_base_url or config.base_url
+        self.search_api_key = search_api_key or config.search_api_key
+        self.model = model or config.default_model
+        self.max_iterations = max_iterations or config.research.max_iterations
+
+        # 创建工作流图（使用配置）
         self.graph = DeepResearchGraph(
             llm_api_key=self.llm_api_key,
             llm_base_url=self.llm_base_url,
@@ -61,7 +77,7 @@ class DeepResearchV2Service:
             max_iterations=self.max_iterations
         )
 
-        logger.info(f"DeepResearch V2 Service initialized with model: {model}")
+        logger.info(f"DeepResearch V2 Service initialized with default model: {self.model}")
 
     async def research(
         self,
@@ -145,16 +161,18 @@ def create_service(
     llm_api_key: Optional[str] = None,
     llm_base_url: Optional[str] = None,
     search_api_key: Optional[str] = None,
-    model: str = "qwen-max"
+    model: Optional[str] = None
 ) -> DeepResearchV2Service:
     """
     工厂函数：创建 DeepResearch V2 服务
 
+    所有参数都是可选的，会从配置文件读取默认值
+
     Args:
-        llm_api_key: LLM API 密钥
-        llm_base_url: LLM API 基础 URL
-        search_api_key: 搜索 API 密钥
-        model: 模型名称
+        llm_api_key: LLM API 密钥（可选）
+        llm_base_url: LLM API 基础 URL（可选）
+        search_api_key: 搜索 API 密钥（可选）
+        model: 默认模型名称（可选）
 
     Returns:
         DeepResearchV2Service 实例

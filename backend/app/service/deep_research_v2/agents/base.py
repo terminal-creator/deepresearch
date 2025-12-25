@@ -203,14 +203,23 @@ class BaseAgent(ABC):
         self.logger.warning(f"Raw response (first 800 chars): {response[:800]}")
         return {}
 
-    def _fix_escaped_values(self, obj: Any) -> Any:
-        """递归修复字典和列表中的转义字符"""
+    def _fix_escaped_values(self, obj: Any, key: str = None) -> Any:
+        """
+        递归修复字典和列表中的转义字符
+
+        注意：对于 'code' 字段，不处理转义，因为代码中的 \n 是有意义的转义序列
+        """
         if isinstance(obj, dict):
-            return {k: self._fix_escaped_values(v) for k, v in obj.items()}
+            return {k: self._fix_escaped_values(v, key=k) for k, v in obj.items()}
         elif isinstance(obj, list):
-            return [self._fix_escaped_values(item) for item in obj]
+            return [self._fix_escaped_values(item, key=key) for item in obj]
         elif isinstance(obj, str):
-            # 修复过度转义的换行符
+            # 对于代码字段，不进行转义处理
+            # 因为代码中的 \n 应该保持为 \n（两个字符），而不是真正的换行
+            if key in ('code', 'fixed_code', 'revised_content'):
+                return obj
+
+            # 对于其他字段，修复过度转义的换行符
             result = obj
             result = result.replace('\\\\n', '\n')
             result = result.replace('\\n', '\n')
@@ -243,8 +252,11 @@ class BaseAgent(ABC):
         if "_message_queue" in state and state["_message_queue"] is not None:
             try:
                 state["_message_queue"].put_nowait(message)
+                self.logger.info(f"[SSE] Queued event: {event_type} (queue size: {state['_message_queue'].qsize()})")
             except Exception as e:
                 self.logger.warning(f"Failed to push message to queue: {e}")
+        else:
+            self.logger.warning(f"[SSE] No queue available for event: {event_type}")
 
     def add_log(
         self,

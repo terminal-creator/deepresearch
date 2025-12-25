@@ -16,6 +16,9 @@
     .com-page-layout__main-content {
       flex-grow: 1;
       flex-shrink: 0;
+      max-width: 100%;
+      overflow: hidden;
+      box-sizing: border-box;
     }
   }
 

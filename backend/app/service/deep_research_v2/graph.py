@@ -23,6 +23,19 @@ except ImportError:
 from .state import ResearchState, ResearchPhase, create_initial_state
 from .agents import ChiefArchitect, DeepScout, CodeWizard, CriticMaster, LeadWriter, DataAnalyst
 
+# 导入配置
+try:
+    from config.llm_config import get_config
+except ImportError:
+    try:
+        from app.config.llm_config import get_config
+    except ImportError:
+        # 兼容直接运行脚本的情况
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from config.llm_config import get_config
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("DeepResearchGraph")
 
@@ -42,26 +55,60 @@ class DeepResearchGraph:
 
     def __init__(
         self,
-        llm_api_key: str,
-        llm_base_url: str,
-        search_api_key: str,
-        model: str = "qwen-max",
-        max_iterations: int = 3
+        llm_api_key: str = None,
+        llm_base_url: str = None,
+        search_api_key: str = None,
+        model: str = None,
+        max_iterations: int = None
     ):
-        """初始化工作流"""
-        self.llm_api_key = llm_api_key
-        self.llm_base_url = llm_base_url
-        self.search_api_key = search_api_key
-        self.model = model
-        self.max_iterations = max_iterations
+        """
+        初始化工作流
 
-        # 初始化各个Agent
-        self.architect = ChiefArchitect(llm_api_key, llm_base_url, model)
-        self.scout = DeepScout(llm_api_key, llm_base_url, search_api_key, "qwen-plus")
-        self.data_analyst = DataAnalyst(llm_api_key, llm_base_url, model)
-        self.wizard = CodeWizard(llm_api_key, llm_base_url, model)
-        self.critic = CriticMaster(llm_api_key, llm_base_url, model)
-        self.writer = LeadWriter(llm_api_key, llm_base_url, model)
+        所有参数都可从配置文件读取，传入的参数会覆盖配置
+        """
+        # 获取配置
+        config = get_config()
+
+        # 使用传入参数或配置默认值
+        self.llm_api_key = llm_api_key or config.api_key
+        self.llm_base_url = llm_base_url or config.base_url
+        self.search_api_key = search_api_key or config.search_api_key
+        self.model = model or config.default_model
+        self.max_iterations = max_iterations or config.research.max_iterations
+
+        # 初始化各个 Agent（使用各自配置的模型）
+        self.architect = ChiefArchitect(
+            self.llm_api_key, self.llm_base_url,
+            config.agents.architect.model
+        )
+        self.scout = DeepScout(
+            self.llm_api_key, self.llm_base_url, self.search_api_key,
+            config.agents.scout.model
+        )
+        self.data_analyst = DataAnalyst(
+            self.llm_api_key, self.llm_base_url,
+            config.agents.data_analyst.model
+        )
+        self.wizard = CodeWizard(
+            self.llm_api_key, self.llm_base_url,
+            config.agents.wizard.model
+        )
+        self.critic = CriticMaster(
+            self.llm_api_key, self.llm_base_url,
+            config.agents.critic.model
+        )
+        self.writer = LeadWriter(
+            self.llm_api_key, self.llm_base_url,
+            config.agents.writer.model
+        )
+
+        logger.info(f"DeepResearchGraph initialized with models:")
+        logger.info(f"  - Architect: {config.agents.architect.model}")
+        logger.info(f"  - Scout: {config.agents.scout.model}")
+        logger.info(f"  - DataAnalyst: {config.agents.data_analyst.model}")
+        logger.info(f"  - Wizard: {config.agents.wizard.model}")
+        logger.info(f"  - Critic: {config.agents.critic.model}")
+        logger.info(f"  - Writer: {config.agents.writer.model}")
 
         # 构建图
         if LANGGRAPH_AVAILABLE:
@@ -188,14 +235,14 @@ class DeepResearchGraph:
             "timestamp": datetime.now().isoformat()
         }
 
-        if LANGGRAPH_AVAILABLE and self.graph:
-            # 使用 LangGraph 执行
-            async for event in self._run_with_langgraph(state):
-                yield event
-        else:
-            # 使用简化版本执行
-            async for event in self._run_simplified(state):
-                yield event
+        # 始终使用简化版本执行（支持实时SSE流式输出）
+        # LangGraph 版本会批量处理消息，无法实现实时流式输出
+        # if LANGGRAPH_AVAILABLE and self.graph:
+        #     async for event in self._run_with_langgraph(state):
+        #         yield event
+        # else:
+        async for event in self._run_simplified(state):
+            yield event
 
     async def _run_with_langgraph(self, state: ResearchState) -> AsyncGenerator[Dict[str, Any], None]:
         """使用 LangGraph 执行"""
@@ -231,17 +278,25 @@ class DeepResearchGraph:
 
         async def run_agent_with_streaming(agent):
             """执行 agent 并实时 yield 消息"""
+            logger.info(f"Starting agent: {agent.name}")
+
             # 启动 agent 处理任务
             task = asyncio.create_task(agent.process(state))
 
+            msg_count = 0
             # 在任务执行期间持续从队列获取消息
             while not task.done():
                 try:
-                    msg = await asyncio.wait_for(message_queue.get(), timeout=0.1)
+                    msg = await asyncio.wait_for(message_queue.get(), timeout=0.5)
+                    msg_count += 1
+                    msg_type = msg.get('type', 'unknown')
+                    logger.info(f"[SSE YIELD] [{agent.name}] #{msg_count}: {msg_type}")
                     yield msg
                 except asyncio.TimeoutError:
+                    # 继续等待，不发送心跳（SSE连接由前端保持）
                     continue
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"[{agent.name}] Queue error: {e}")
                     continue
 
             # 等待任务完成（获取可能的异常）
@@ -251,28 +306,35 @@ class DeepResearchGraph:
                 logger.error(f"Agent {agent.name} error: {e}")
 
             # 清空剩余的消息
+            remaining = 0
             while not message_queue.empty():
                 try:
                     msg = message_queue.get_nowait()
+                    remaining += 1
                     yield msg
                 except:
                     break
 
+            logger.info(f"Agent {agent.name} completed. Messages: {msg_count} during, {remaining} remaining")
+
         try:
             # Phase 1: Plan
             yield {"type": "phase", "phase": "planning", "content": "开始规划研究..."}
+            state["phase"] = ResearchPhase.INIT.value
             async for msg in run_agent_with_streaming(self.architect):
                 yield msg
             state["messages"] = []
 
             # Phase 2: Research (这是最需要实时输出的阶段)
             yield {"type": "phase", "phase": "researching", "content": "开始深度搜索..."}
+            state["phase"] = ResearchPhase.RESEARCHING.value
             async for msg in run_agent_with_streaming(self.scout):
                 yield msg
             state["messages"] = []
 
             # Phase 3: Analyze
             yield {"type": "phase", "phase": "analyzing", "content": "开始数据分析..."}
+            state["phase"] = ResearchPhase.ANALYZING.value
             async for msg in run_agent_with_streaming(self.data_analyst):
                 yield msg
             state["messages"] = []
@@ -282,6 +344,7 @@ class DeepResearchGraph:
 
             # Phase 4: Write
             yield {"type": "phase", "phase": "writing", "content": "开始撰写报告..."}
+            state["phase"] = ResearchPhase.WRITING.value
             async for msg in run_agent_with_streaming(self.writer):
                 yield msg
             state["messages"] = []
@@ -289,6 +352,7 @@ class DeepResearchGraph:
             # Phase 5 & 6: Review & Revise/Re-Research Loop
             while state["iteration"] < state["max_iterations"]:
                 yield {"type": "phase", "phase": "reviewing", "content": f"审核中（第 {state['iteration'] + 1} 轮）..."}
+                state["phase"] = ResearchPhase.REVIEWING.value
                 async for msg in run_agent_with_streaming(self.critic):
                     yield msg
                 state["messages"] = []
@@ -317,6 +381,14 @@ class DeepResearchGraph:
                     break
 
             # 完成
+            logger.info(f"[Graph] ========== 研究完成 ==========")
+            logger.info(f"[Graph] 最终统计: facts={len(state.get('facts', []))}, charts={len(state.get('charts', []))}, iterations={state.get('iteration', 0)}")
+            logger.info(f"[Graph] 报告长度: {len(state.get('final_report', ''))}")
+
+            # 打印每个图表的详情
+            for i, chart in enumerate(state.get('charts', [])):
+                logger.info(f"[Graph] 图表 {i+1}: id={chart.get('id')}, title={chart.get('title')}, has_echarts={bool(chart.get('echarts_option'))}, has_image={bool(chart.get('image_base64'))}")
+
             yield {
                 "type": "research_complete",
                 "final_report": state.get("final_report", ""),
@@ -373,19 +445,21 @@ class DeepResearchGraph:
 
 
 def create_research_graph(
-    llm_api_key: str,
-    llm_base_url: str,
-    search_api_key: str,
-    model: str = "qwen-max"
+    llm_api_key: str = None,
+    llm_base_url: str = None,
+    search_api_key: str = None,
+    model: str = None
 ) -> DeepResearchGraph:
     """
     工厂函数：创建 DeepResearch 工作流图
 
+    所有参数都是可选的，会从配置文件读取默认值
+
     Args:
-        llm_api_key: LLM API 密钥
-        llm_base_url: LLM API 基础 URL
-        search_api_key: 搜索 API 密钥
-        model: 模型名称
+        llm_api_key: LLM API 密钥（可选，默认从配置读取）
+        llm_base_url: LLM API 基础 URL（可选，默认从配置读取）
+        search_api_key: 搜索 API 密钥（可选，默认从配置读取）
+        model: 默认模型名称（可选，默认从配置读取）
 
     Returns:
         DeepResearchGraph 实例
