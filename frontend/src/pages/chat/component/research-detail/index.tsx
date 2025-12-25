@@ -4,7 +4,7 @@ import classNames from 'classnames'
 import SearchResults from './search-results'
 import KnowledgeGraph from './knowledge-graph'
 import Visualization from './visualization'
-import ProcessReport from './process-report'
+import ProcessReport, { SectionDraft } from './process-report'
 import styles from './index.module.scss'
 
 export interface SearchResult {
@@ -56,7 +56,8 @@ export interface ResearchDetailData {
   searchResults?: SearchResult[]
   knowledgeGraph?: KnowledgeGraphData
   charts?: ChartConfig[]
-  streamingReport?: string
+  streamingReport?: string  // 最终报告
+  sections?: SectionDraft[]  // 章节草稿
 }
 
 export interface ResearchStep {
@@ -191,7 +192,7 @@ export default function ResearchDetail({ data, steps = [], onStepClick, onClose 
         {activeTab === 'results' && <SearchResults data={data?.searchResults} />}
         {activeTab === 'graph' && <KnowledgeGraph data={data?.knowledgeGraph} />}
         {activeTab === 'charts' && <Visualization charts={data?.charts} />}
-        {activeTab === 'report' && <ProcessReport content={data?.streamingReport} />}
+        {activeTab === 'report' && <ProcessReport content={data?.streamingReport} sections={data?.sections} />}
       </div>
     </div>
   )

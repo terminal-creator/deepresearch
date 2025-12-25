@@ -1,12 +1,26 @@
+import { useState } from 'react'
 import Markdown from '@/components/markdown'
-import styles from './index.module.scss'
+import styles from './process-report.module.scss'
 
-interface ProcessReportProps {
-  content?: string
+export interface SectionDraft {
+  id: string
+  title: string
+  content: string
+  wordCount?: number
 }
 
-export default function ProcessReport({ content }: ProcessReportProps) {
-  if (!content) {
+interface ProcessReportProps {
+  content?: string  // 最终报告
+  sections?: SectionDraft[]  // 章节草稿
+}
+
+export default function ProcessReport({ content, sections }: ProcessReportProps) {
+  const [activeView, setActiveView] = useState<'sections' | 'final'>('final')
+
+  const hasSections = sections && sections.length > 0
+  const hasContent = !!content
+
+  if (!hasSections && !hasContent) {
     return (
       <div className={styles.emptyState}>
         <div className={styles.emptyIcon}>
@@ -20,8 +34,58 @@ export default function ProcessReport({ content }: ProcessReportProps) {
   }
 
   return (
-    <div className={styles.processReport}>
-      <Markdown value={content} />
+    <div className={styles.container}>
+      {/* 切换按钮 */}
+      {(hasSections || hasContent) && (
+        <div className={styles.viewSwitch}>
+          <button
+            className={`${styles.switchBtn} ${activeView === 'sections' ? styles.active : ''}`}
+            onClick={() => setActiveView('sections')}
+            disabled={!hasSections}
+          >
+            章节草稿 {hasSections && <span className={styles.count}>{sections.length}</span>}
+          </button>
+          <button
+            className={`${styles.switchBtn} ${activeView === 'final' ? styles.active : ''}`}
+            onClick={() => setActiveView('final')}
+            disabled={!hasContent}
+          >
+            最终报告
+          </button>
+        </div>
+      )}
+
+      {/* 内容区 */}
+      <div className={styles.contentArea}>
+        {activeView === 'sections' && hasSections ? (
+          <div className={styles.sectionsView}>
+            {sections.map((section, index) => (
+              <div key={section.id} className={styles.sectionCard}>
+                <div className={styles.sectionHeader}>
+                  <span className={styles.sectionIndex}>{index + 1}</span>
+                  <span className={styles.sectionTitle}>{section.title}</span>
+                  {section.wordCount && (
+                    <span className={styles.wordCount}>{section.wordCount} 字</span>
+                  )}
+                </div>
+                <div className={styles.sectionContent}>
+                  <Markdown value={section.content} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : hasContent ? (
+          <div className={styles.finalReport}>
+            <Markdown value={content} />
+          </div>
+        ) : (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyText}>
+              {activeView === 'sections' ? '暂无章节草稿' : '报告生成中...'}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

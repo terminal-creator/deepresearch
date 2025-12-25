@@ -55,25 +55,27 @@ class LeadWriter(BaseAgent):
 1. **专业性**：使用行业术语，体现专业深度
 2. **逻辑性**：论点清晰，论据充分，层层递进
 3. **数据支撑**：关键观点必须有数据或事实支撑
-4. **引用规范**：使用 [^1] [^2] 格式标注引用来源
+4. **引用规范**：使用可点击链接格式 [来源名称](URL)，如 [艾瑞咨询](https://www.iresearch.cn)
 5. **图表整合**：在合适位置插入图表引用 ![图表标题](chart_id)
 6. **字数控制**：本章节 500-1000 字
+7. **不要重复标题**：正文开头不要再写章节标题
 
 ## 输出格式
 ```json
 {{
-    "content": "章节正文内容（Markdown格式）",
+    "content": "章节正文内容（Markdown格式，不包含章节标题）",
     "key_points": ["本章节的核心要点"],
     "citations": [
-        {{"marker": "[^1]", "source": "来源名称", "url": "来源URL"}}
+        {{"source": "来源名称", "url": "完整URL"}}
     ],
     "suggested_improvements": ["如果有更多信息可以改进的地方"]
 }}
 ```
 
 ## 写作风格示例
-- 好的开头："2024年，中国AI芯片市场正经历深刻变革。根据IDC数据[^1]，..."
+- 好的开头："2024年，中国AI芯片市场正经历深刻变革。根据[IDC数据](https://www.idc.com)，市场规模达到..."
 - 避免的开头："关于AI芯片，首先我们来看..."
+- 数据引用示例："市场规模达5000亿元（[艾瑞咨询报告](https://www.iresearch.cn/report)）"
 
 开始撰写："""
 
@@ -90,49 +92,90 @@ class LeadWriter(BaseAgent):
 
 ## 任务
 1. 撰写报告摘要（Executive Summary）
-2. 整合各章节，确保逻辑连贯
+2. 整合各章节，确保逻辑连贯，使用层级编号
 3. 撰写结论与展望
-4. 整理参考文献列表
+4. 整理参考文献列表（确保链接可点击）
+
+## 关键要求
+
+### 1. 标题编号规则（必须严格遵守）
+- 一级标题：1、2、3...（如：1 市场概况）
+- 二级标题：1.1、1.2、2.1...（如：1.1 市场规模）
+- 三级标题：1.1.1、1.1.2...（如：1.1.1 全球市场）
+- **禁止标题重复**：每个标题必须唯一，不要在正文中重复章节标题
+
+### 2. 引用格式规则（确保可点击）
+- 行内引用：使用 [来源名称](URL) 格式，如 [艾瑞咨询](https://www.iresearch.cn)
+- 数据引用：在数据后标注来源，如"市场规模达5000亿元（[IDC报告](https://www.idc.com)）"
+- 文末参考文献：使用有序列表 + 可点击链接格式
+
+### 3. 报告结构规范
+- 不要在报告开头使用 # 一级标题
+- 直接从"执行摘要"开始
+- 各章节使用 ## 二级标题
+- 子章节使用 ### 三级标题
 
 ## 输出格式
 ```json
 {{
     "executive_summary": "执行摘要（300-500字）",
-    "full_report": "完整报告（Markdown格式）",
+    "full_report": "完整报告（Markdown格式，按下方结构生成）",
     "conclusions": ["核心结论1", "核心结论2"],
     "outlook": "未来展望",
     "references": [
-        {{"id": 1, "title": "来源标题", "url": "URL", "author": "作者", "date": "日期"}}
+        {{"id": 1, "title": "来源标题", "url": "完整URL", "author": "作者/机构", "date": "日期"}}
     ]
 }}
 ```
 
-## 报告结构
+## 报告结构模板
 ```markdown
-# [报告标题]
-
 ## 执行摘要
+
+[300-500字的研究摘要]
+
+---
+
+## 1 [第一章标题]
+
+[章节引言段落]
+
+### 1.1 [子章节标题]
+
+[内容，包含数据引用如：根据[来源名](URL)，...]
+
+### 1.2 [子章节标题]
+
+#### 1.2.1 [三级标题]
+
+[更详细的内容]
+
+---
+
+## 2 [第二章标题]
+
+### 2.1 [子章节标题]
+
 ...
 
-## 目录
-1. [章节1]
-2. [章节2]
-...
-
-## 1. [章节1标题]
-[章节1内容]
-
-## 2. [章节2标题]
-[章节2内容]
-
-...
+---
 
 ## 结论与展望
-...
+
+### 核心结论
+1. [结论1]
+2. [结论2]
+
+### 未来展望
+[展望内容]
+
+---
 
 ## 参考文献
-[^1]: ...
-[^2]: ...
+
+1. [来源标题1](URL1) - 作者/机构, 日期
+2. [来源标题2](URL2) - 作者/机构, 日期
+...
 ```"""
 
     REVISION_PROMPT = """你是首席笔杆，需要根据审核反馈修订报告。
@@ -277,7 +320,7 @@ class LeadWriter(BaseAgent):
             user_prompt=prompt,
             json_mode=True,
             temperature=0.4,
-            max_tokens=2000
+            max_tokens=16000  # 拉满到最大值
         )
 
         result = self.parse_json_response(response)
@@ -343,33 +386,52 @@ class LeadWriter(BaseAgent):
             all_sources="\n".join(all_sources[:30]) if all_sources else "（暂无来源）"
         )
 
+        self.logger.info(f"[LeadWriter] 调用 LLM 整合报告...")
         response = await self.call_llm(
             system_prompt="你是资深的研究报告主编，擅长整合和打磨最终报告。",
             user_prompt=prompt,
             json_mode=True,
             temperature=0.3,
-            max_tokens=4096
+            max_tokens=16000  # 拉满到最大值
         )
 
         result = self.parse_json_response(response)
+        self.logger.info(f"[LeadWriter] JSON 解析结果: {bool(result)}, keys: {result.keys() if result else 'N/A'}")
 
-        if result:
+        executive_summary = ""
+        conclusions = []
+
+        if result and result.get("full_report"):
             state["final_report"] = result.get("full_report", "")
+            executive_summary = result.get("executive_summary", "")
+            conclusions = result.get("conclusions", [])
+            self.logger.info(f"[LeadWriter] ✅ 报告整合成功，长度: {len(state['final_report'])}")
 
             # 更新参考文献
             for ref in result.get("references", []):
                 if ref not in state["references"]:
                     state["references"].append(ref)
+        else:
+            # JSON 解析失败时的备选方案：使用已有章节内容组装报告
+            self.logger.warning(f"[LeadWriter] ⚠️ JSON 解析失败，使用章节内容作为备选")
+            fallback_report = f"# {state['query']} 研究报告\n\n"
+            for section in state["outline"]:
+                section_id = section["id"]
+                content = state["draft_sections"].get(section_id, "")
+                if content:
+                    fallback_report += f"## {section.get('title', section_id)}\n\n{content}\n\n"
+            state["final_report"] = fallback_report
+            self.logger.info(f"[LeadWriter] 使用备选报告，长度: {len(state['final_report'])}")
 
-            # 发送报告完成事件 - 包含完整报告内容用于前端流式显示
-            self.add_message(state, "report_draft", {
-                "agent": self.name,
-                "content": state["final_report"],  # 完整报告内容
-                "executive_summary": result.get("executive_summary", ""),
-                "conclusions": result.get("conclusions", []),
-                "word_count": len(state["final_report"]),
-                "references_count": len(state["references"])
-            })
+        # 发送报告完成事件 - 包含完整报告内容用于前端流式显示
+        self.add_message(state, "report_draft", {
+            "agent": self.name,
+            "content": state["final_report"],  # 完整报告内容
+            "executive_summary": executive_summary,
+            "conclusions": conclusions,
+            "word_count": len(state["final_report"]),
+            "references_count": len(state["references"])
+        })
 
     async def _revise_report(self, state: ResearchState) -> ResearchState:
         """根据反馈修订报告"""
@@ -399,7 +461,7 @@ class LeadWriter(BaseAgent):
             user_prompt=prompt,
             json_mode=True,
             temperature=0.3,
-            max_tokens=4096
+            max_tokens=16000  # 拉满到最大值
         )
 
         result = self.parse_json_response(response)

@@ -60,7 +60,7 @@ class CriticMaster(BaseAgent):
 ```json
 {{
     "overall_assessment": {{
-        "quality_score": 0.0-1.0,
+        "quality_score": 1-10,
         "verdict": "pass/needs_revision/major_issues",
         "summary": "整体评估摘要"
     }},
@@ -95,6 +95,15 @@ class CriticMaster(BaseAgent):
 - major: 强烈建议修复，影响报告质量（如：缺少来源、逻辑漏洞）
 - minor: 建议修复，提升报告质量（如：表述不够精确）
 
+## 评分标准（1-10分制）
+- 9-10分：优秀，几乎无问题，可直接发布
+- 7-8分：良好，有小问题但不影响整体质量，审核通过（verdict=pass）
+- 5-6分：一般，有明显问题需要修订
+- 3-4分：较差，问题较多，需要大幅修改
+- 1-2分：很差，存在严重问题或大量错误
+
+注意：quality_score >= 7 时才能设置 verdict 为 "pass"
+
 开始你的审核："""
 
     FINAL_CHECK_PROMPT = """你是最终质量把关人。这是修订后的研究报告。
@@ -121,7 +130,7 @@ class CriticMaster(BaseAgent):
         "severity": "critical/major/minor"
     }}],
     "final_verdict": "approved/needs_more_work",
-    "final_score": 0.0-1.0,
+    "final_score": 1-10,
     "publication_readiness": "ready/almost_ready/not_ready",
     "final_comments": "最终评语"
 }}
@@ -138,7 +147,11 @@ class CriticMaster(BaseAgent):
 
     async def process(self, state: ResearchState) -> ResearchState:
         """处理入口"""
+        self.logger.info(f"[CriticMaster] ========== process 开始 ==========")
+        self.logger.info(f"[CriticMaster] phase: {state['phase']}, final_report 长度: {len(state.get('final_report', ''))}")
+
         if state["phase"] != ResearchPhase.REVIEWING.value:
+            self.logger.info(f"[CriticMaster] phase 不是 REVIEWING，跳过")
             return state
 
         self.add_message(state, "thought", {
@@ -147,7 +160,9 @@ class CriticMaster(BaseAgent):
         })
 
         # 执行审核
+        self.logger.info(f"[CriticMaster] 开始调用 _review_content...")
         review_result = await self._review_content(state)
+        self.logger.info(f"[CriticMaster] 审核完成，结果: {bool(review_result)}")
 
         if review_result:
             # 记录反馈
@@ -265,6 +280,8 @@ class CriticMaster(BaseAgent):
 
     async def _review_content(self, state: ResearchState) -> Dict[str, Any]:
         """审核内容"""
+        self.logger.info(f"[CriticMaster] _review_content 开始")
+
         # 准备草稿内容
         draft_content = ""
         for section_id, content in state["draft_sections"].items():
@@ -273,6 +290,8 @@ class CriticMaster(BaseAgent):
 
         if not draft_content:
             draft_content = state.get("final_report", "（暂无内容）")
+
+        self.logger.info(f"[CriticMaster] 待审核内容长度: {len(draft_content)}")
 
         # 准备事实列表
         facts_summary = []
@@ -297,14 +316,19 @@ class CriticMaster(BaseAgent):
             data_points="\n".join(data_summary) if data_summary else "（暂无数据点）"
         )
 
+        self.logger.info(f"[CriticMaster] 调用 LLM 进行审核...")
         response = await self.call_llm(
             system_prompt="你是一位极其严苛的质量审核专家，专门找出研究报告中的问题。你永远不会轻易满意。",
             user_prompt=prompt,
             json_mode=True,
-            temperature=0.2
+            temperature=0.2,
+            max_tokens=16000  # 拉满到最大值
         )
+        self.logger.info(f"[CriticMaster] LLM 响应长度: {len(response)}")
 
-        return self.parse_json_response(response)
+        result = self.parse_json_response(response)
+        self.logger.info(f"[CriticMaster] JSON 解析结果: {bool(result)}, verdict: {result.get('overall_assessment', {}).get('verdict') if result else 'N/A'}")
+        return result
 
     async def final_check(self, state: ResearchState) -> Dict[str, Any]:
         """最终检查"""

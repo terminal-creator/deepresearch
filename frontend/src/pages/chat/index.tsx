@@ -745,11 +745,36 @@ export default function Index() {
                     streamingReport: '',
                     searchResults: [],
                     charts: [],
+                    sections: [],  // 初始化 sections 数组
                   }
                   researchDetailsRef.current.set(writingStep.id, detail)
                 }
 
-                // 累加章节内容，用分隔符分开
+                // 添加章节到 sections 数组
+                const sectionId = content.section_id || `section_${Date.now()}`
+                if (!detail.sections) {
+                  detail.sections = []
+                }
+                // 检查是否已存在，避免重复
+                const existingIndex = detail.sections.findIndex(s => s.id === sectionId)
+                if (existingIndex >= 0) {
+                  detail.sections[existingIndex] = {
+                    id: sectionId,
+                    title: sectionTitle,
+                    content: sectionContent,
+                    wordCount: sectionContent.length,
+                  }
+                } else {
+                  detail.sections.push({
+                    id: sectionId,
+                    title: sectionTitle,
+                    content: sectionContent,
+                    wordCount: sectionContent.length,
+                  })
+                }
+                console.log(`section_content: 已添加章节「${sectionTitle}」到 sections，当前数量: ${detail.sections.length}`)
+
+                // 累加章节内容到 streamingReport（保持向后兼容）
                 const existingContent = detail.streamingReport || ''
                 const newContent = existingContent
                   ? `${existingContent}\n\n## ${sectionTitle}\n\n${sectionContent}`
@@ -1110,9 +1135,10 @@ export default function Index() {
     let knowledgeGraph: ResearchDetailData['knowledgeGraph'] = undefined
     let allCharts: ResearchDetailData['charts'] = []
     let streamingReport = ''
+    let allSections: ResearchDetailData['sections'] = []
 
     researchDetailsRef.current.forEach((detail, stepId) => {
-      console.log(`[前端] 聚合步骤 ${stepId}: searchResults=${detail.searchResults?.length || 0}, charts=${detail.charts?.length || 0}, hasGraph=${!!detail.knowledgeGraph}, hasReport=${!!detail.streamingReport}`)
+      console.log(`[前端] 聚合步骤 ${stepId}: searchResults=${detail.searchResults?.length || 0}, charts=${detail.charts?.length || 0}, hasGraph=${!!detail.knowledgeGraph}, hasReport=${!!detail.streamingReport}, sections=${detail.sections?.length || 0}`)
 
       // 收集搜索结果
       if (detail.searchResults && detail.searchResults.length > 0) {
@@ -1130,9 +1156,13 @@ export default function Index() {
       if (detail.streamingReport) {
         streamingReport = detail.streamingReport
       }
+      // 收集章节草稿
+      if (detail.sections && detail.sections.length > 0) {
+        allSections = [...allSections!, ...detail.sections]
+      }
     })
 
-    console.log(`[前端] 聚合结果: searchResults=${allSearchResults.length}, charts=${allCharts.length}, hasGraph=${!!knowledgeGraph}, hasReport=${!!streamingReport}`)
+    console.log(`[前端] 聚合结果: searchResults=${allSearchResults.length}, charts=${allCharts.length}, hasGraph=${!!knowledgeGraph}, hasReport=${!!streamingReport}, sections=${allSections.length}`)
 
     // 创建聚合的数据对象
     const aggregated: ResearchDetailData = {
@@ -1144,6 +1174,7 @@ export default function Index() {
       knowledgeGraph,
       charts: allCharts,
       streamingReport,
+      sections: allSections,
     }
 
     return aggregated

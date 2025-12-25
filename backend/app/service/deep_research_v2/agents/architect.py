@@ -197,7 +197,7 @@ class ChiefArchitect(BaseAgent):
                 user_prompt=prompt,
                 json_mode=True,
                 temperature=0.3,
-                max_tokens=8000  # 确保足够的token生成完整响应
+                max_tokens=16000  # 拉满到最大值
             )
 
             # Debug: 记录原始响应

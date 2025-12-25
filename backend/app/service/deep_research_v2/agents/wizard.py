@@ -98,21 +98,32 @@ df = df.dropna()
 - **禁止import语句**，已预定义: pd, np, plt, sns
 - **禁止plt.rcParams**，中文字体已预设
 
-### 5. 图表保存
-plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
+### 5. 高级图表样式（必须遵守）
+生成专业、高端的商业图表，要求：
+- **图表尺寸**: `plt.figure(figsize=(12, 7), dpi=200)`
+- **seaborn主题**: `sns.set_theme(style='whitegrid', palette='husl')`
+- **标题**: `plt.title('标题', fontsize=18, fontweight='bold', pad=20)`
+- **轴标签**: `fontsize=14`
+- **刻度**: `fontsize=12`
+- **配色**: 使用专业配色如 `#6366f1`（靛蓝）、`#06b6d4`（青色）、`#10b981`（翡翠绿）
+- **网格线**: `plt.grid(True, linestyle='--', alpha=0.3)`
+- **去除边框**: `sns.despine()`
+- **折线图**: `linewidth=2.5, marker='o', markersize=8`，可加面积填充 `plt.fill_between()`
+- **柱状图**: 添加数值标签
+- **保存**: `plt.savefig('chart.png', dpi=200, bbox_inches='tight', facecolor='white')`
 
 ## 输出格式（严格JSON，code字段用\\n表示换行）
 ```json
 {{
     "analysis_plan": "简要分析计划",
-    "code": "data = {{'Year': [2020, 2022, 2024], 'Value': [100, 150, 200]}}\\ndf = pd.DataFrame(data)\\ndf['Value'] = pd.to_numeric(df['Value'], errors='coerce')\\nplt.figure(figsize=(10, 6))\\nplt.plot(df['Year'], df['Value'])\\nplt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')",
+    "code": "sns.set_theme(style='whitegrid')\\ndata = {{'Year': [2020, 2022, 2024], 'Value': [100, 150, 200]}}\\ndf = pd.DataFrame(data)\\ndf['Value'] = pd.to_numeric(df['Value'], errors='coerce')\\nplt.figure(figsize=(12, 7), dpi=200)\\nplt.plot(df['Year'], df['Value'], linewidth=2.5, marker='o', markersize=8, color='#6366f1')\\nplt.fill_between(df['Year'], df['Value'], alpha=0.15, color='#6366f1')\\nplt.title('市场规模趋势', fontsize=18, fontweight='bold')\\nplt.xlabel('年份', fontsize=14)\\nplt.ylabel('规模（亿元）', fontsize=14)\\nplt.xticks(fontsize=12)\\nplt.yticks(fontsize=12)\\nsns.despine()\\nplt.savefig('chart.png', dpi=200, bbox_inches='tight', facecolor='white')",
     "expected_outputs": ["图表描述"]
 }}
 ```
 
 注意：code 字段中的换行请使用 `\\n` 字符表示，不要使用物理换行符，也**绝对不要使用续行符 `\\`**。"""
 
-    CHART_PROMPT = """你是专业的数据可视化专家。
+    CHART_PROMPT = """你是专业的数据可视化专家，擅长制作高端商业图表。
 
 ## 主题: {topic}
 ## 图表类型: {chart_type}
@@ -122,17 +133,37 @@ plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
 {data}
 
 ## 代码要求（重要）
-1. **严禁使用反斜杠 `\\` 进行代码续行**。Python 的字典、列表天然支持跨行书写，不需要反斜杠。
+
+### 基础要求
+1. **严禁使用反斜杠 `\\` 进行代码续行**
 2. **不要写import语句**，已预导入: pd, np, plt, sns
-3. 中文字体已预设，不需要设置 plt.rcParams
-4. 图表尺寸 (10, 6) 或 (12, 8)
-5. 数据定义使用标准字典格式: `data = {{"col1": [...], "col2": [...]}}`
-6. 保存: plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
+3. 数据定义使用标准字典格式: `data = {{"col1": [...], "col2": [...]}}`
+
+### 高级样式要求（必须遵守）
+1. **图表尺寸**: `plt.figure(figsize=(12, 7), dpi=200)`
+2. **使用 seaborn 主题**: `sns.set_theme(style='whitegrid', palette='husl')`
+3. **标题字体**: `plt.title('标题', fontsize=18, fontweight='bold', pad=20)`
+4. **坐标轴标签**: `plt.xlabel('X轴', fontsize=14)` 和 `plt.ylabel('Y轴', fontsize=14)`
+5. **刻度字体**: `plt.xticks(fontsize=12)` 和 `plt.yticks(fontsize=12)`
+6. **添加数据标签**: 在柱状图或折线图的数据点上显示数值
+7. **配色方案**: 使用渐变色或专业配色，如 `color='#6366f1'` 或 `palette='Blues_d'`
+8. **网格线**: 使用浅色虚线网格 `plt.grid(True, linestyle='--', alpha=0.3)`
+9. **边框优化**: `sns.despine()` 去除上右边框
+10. **保存**: `plt.savefig('chart.png', dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')`
+
+### 折线图额外要求
+- 线宽 2.5: `linewidth=2.5`
+- 添加数据点标记: `marker='o', markersize=8`
+- 添加面积填充: `plt.fill_between(x, y, alpha=0.15)`
+
+### 柱状图额外要求
+- 圆角效果（如支持）
+- 添加数值标签: `for i, v in enumerate(values): plt.text(i, v + offset, str(v), ha='center', fontsize=11)`
 
 ## 输出格式（严格JSON）
 ```json
 {{
-    "code": "data = {{'Year': [2020, 2022], 'Value': [100, 200]}}\\ndf = pd.DataFrame(data)\\nplt.figure(figsize=(10,6))\\nplt.bar(df['Year'], df['Value'])\\nplt.savefig('chart.png')",
+    "code": "sns.set_theme(style='whitegrid')\\ndata = {{'Year': [2020, 2022], 'Value': [100, 200]}}\\ndf = pd.DataFrame(data)\\nplt.figure(figsize=(12,7), dpi=200)\\nplt.bar(df['Year'], df['Value'], color='#6366f1')\\nplt.title('标题', fontsize=18, fontweight='bold')\\nplt.xlabel('年份', fontsize=14)\\nplt.ylabel('数值', fontsize=14)\\nplt.xticks(fontsize=12)\\nplt.yticks(fontsize=12)\\nsns.despine()\\nplt.savefig('chart.png', dpi=200, bbox_inches='tight', facecolor='white')",
     "chart_description": "图表说明"
 }}
 ```
@@ -1174,15 +1205,30 @@ plt.savefig('chart.png', dpi=150, bbox_inches='tight', facecolor='white')
         charts = []
 
         try:
-            # 预设中文字体（在 exec 之前设置一次）
-            # macOS: Heiti TC, STHeiti, PingFang HK, Hiragino Sans GB, Songti SC
-            # Windows: SimHei, Microsoft YaHei
-            # 通用: Arial Unicode MS
-            plt.rcParams['font.sans-serif'] = [
+            # ========== 预设高级图表样式 ==========
+            # 中文字体
+            chinese_fonts = [
                 'Heiti TC', 'STHeiti', 'PingFang HK', 'Hiragino Sans GB',
                 'SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans'
             ]
+            plt.rcParams['font.sans-serif'] = chinese_fonts
             plt.rcParams['axes.unicode_minus'] = False
+
+            # 高级默认样式
+            plt.rcParams['figure.figsize'] = [12, 7]
+            plt.rcParams['figure.dpi'] = 200
+            plt.rcParams['font.size'] = 12
+            plt.rcParams['axes.titlesize'] = 18
+            plt.rcParams['axes.titleweight'] = 'bold'
+            plt.rcParams['axes.labelsize'] = 14
+            plt.rcParams['xtick.labelsize'] = 12
+            plt.rcParams['ytick.labelsize'] = 12
+            plt.rcParams['legend.fontsize'] = 12
+            plt.rcParams['axes.spines.top'] = False
+            plt.rcParams['axes.spines.right'] = False
+            plt.rcParams['axes.grid'] = True
+            plt.rcParams['grid.alpha'] = 0.3
+            plt.rcParams['grid.linestyle'] = '--'
 
             self.logger.info(f"[CodeWizard] 开始 exec()...")
             self._save_debug_log("sandbox_2_before_exec", f"即将执行代码，长度: {len(code)} 字符")

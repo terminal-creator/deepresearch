@@ -58,7 +58,7 @@ class BaseAgent(ABC):
         user_prompt: str,
         json_mode: bool = True,
         temperature: float = 0.3,
-        max_tokens: int = 8000
+        max_tokens: int = 16000  # 拉满到最大值
     ) -> str:
         """
         调用 LLM
