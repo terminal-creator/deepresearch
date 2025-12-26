@@ -12,6 +12,19 @@ import asyncio
 from typing import Dict, Any, List, Literal, AsyncGenerator
 from datetime import datetime
 
+# 导入取消检查函数
+try:
+    from router.research_router import is_research_cancelled, clear_cancel_flag
+except ImportError:
+    try:
+        from app.router.research_router import is_research_cancelled, clear_cancel_flag
+    except ImportError:
+        # 兼容直接运行脚本的情况
+        def is_research_cancelled(session_id: str) -> bool:
+            return False
+        def clear_cancel_flag(session_id: str):
+            pass
+
 # LangGraph 导入 - 如果没有安装则使用简化版本
 try:
     from langgraph.graph import StateGraph, END
@@ -22,6 +35,17 @@ except ImportError:
 
 from .state import ResearchState, ResearchPhase, create_initial_state
 from .agents import ChiefArchitect, DeepScout, CodeWizard, CriticMaster, LeadWriter, DataAnalyst
+
+# 导入检查点服务
+try:
+    from service.checkpoint_service import get_checkpoint_service
+except ImportError:
+    try:
+        from app.service.checkpoint_service import get_checkpoint_service
+    except ImportError:
+        # 兼容直接运行脚本的情况
+        def get_checkpoint_service():
+            return None
 
 # 导入配置
 try:
@@ -110,11 +134,58 @@ class DeepResearchGraph:
         logger.info(f"  - Critic: {config.agents.critic.model}")
         logger.info(f"  - Writer: {config.agents.writer.model}")
 
+        # 检查点服务
+        self.checkpoint_service = get_checkpoint_service()
+
         # 构建图
         if LANGGRAPH_AVAILABLE:
             self.graph = self._build_langgraph()
         else:
             self.graph = None
+
+    def _save_checkpoint(self, state: Dict[str, Any], user_id: str = None) -> bool:
+        """保存检查点"""
+        if not self.checkpoint_service:
+            return False
+
+        session_id = state.get("session_id", "")
+        if not session_id:
+            return False
+
+        try:
+            checkpoint_id = self.checkpoint_service.save_checkpoint(
+                session_id=session_id,
+                state=state,
+                user_id=user_id
+            )
+            if checkpoint_id:
+                logger.info(f"Checkpoint saved: {checkpoint_id}")
+                return True
+        except Exception as e:
+            logger.warning(f"Failed to save checkpoint: {e}")
+
+        return False
+
+    def _load_checkpoint(self, session_id: str) -> Dict[str, Any]:
+        """加载检查点"""
+        if not self.checkpoint_service:
+            return None
+
+        try:
+            state = self.checkpoint_service.load_checkpoint(session_id)
+            if state:
+                logger.info(f"Checkpoint loaded for session: {session_id}")
+                return state
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint: {e}")
+
+        return None
+
+    def get_checkpoint_info(self, session_id: str) -> Dict[str, Any]:
+        """获取检查点信息"""
+        if not self.checkpoint_service:
+            return None
+        return self.checkpoint_service.get_checkpoint_info(session_id)
 
     def _build_langgraph(self):
         """构建 LangGraph 状态图"""
@@ -212,7 +283,9 @@ class DeepResearchGraph:
     async def run(
         self,
         query: str,
-        session_id: str
+        session_id: str,
+        resume: bool = False,
+        user_id: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         执行研究流程（流式输出）
@@ -220,20 +293,38 @@ class DeepResearchGraph:
         Args:
             query: 用户问题
             session_id: 会话ID
+            resume: 是否从检查点恢复
+            user_id: 用户ID（用于检查点）
 
         Yields:
             SSE 事件字典
         """
-        # 创建初始状态
-        state = create_initial_state(query, session_id)
-        state["max_iterations"] = self.max_iterations
+        # 尝试从检查点恢复
+        state = None
+        if resume and session_id:
+            state = self._load_checkpoint(session_id)
+            if state:
+                yield {
+                    "type": "research_resumed",
+                    "phase": state.get("phase", ""),
+                    "session_id": session_id,
+                    "timestamp": datetime.now().isoformat()
+                }
 
-        yield {
-            "type": "research_start",
-            "query": query,
-            "session_id": session_id,
-            "timestamp": datetime.now().isoformat()
-        }
+        # 如果没有检查点，创建初始状态
+        if not state:
+            state = create_initial_state(query, session_id)
+            state["max_iterations"] = self.max_iterations
+
+            yield {
+                "type": "research_start",
+                "query": query,
+                "session_id": session_id,
+                "timestamp": datetime.now().isoformat()
+            }
+
+        # 存储 user_id 用于检查点
+        state["_user_id"] = user_id
 
         # 始终使用简化版本执行（支持实时SSE流式输出）
         # LangGraph 版本会批量处理消息，无法实现实时流式输出
@@ -276,8 +367,26 @@ class DeepResearchGraph:
         message_queue = asyncio.Queue()
         state["_message_queue"] = message_queue
 
+        # 获取 session_id 用于取消检查
+        session_id = state.get("session_id", "")
+
+        # 清除之前的取消标志
+        if session_id:
+            clear_cancel_flag(session_id)
+
+        async def check_cancelled():
+            """检查是否已取消"""
+            if session_id and is_research_cancelled(session_id):
+                return True
+            return False
+
         async def run_agent_with_streaming(agent):
             """执行 agent 并实时 yield 消息"""
+            # 检查是否已取消
+            if await check_cancelled():
+                logger.info(f"Research cancelled before starting agent: {agent.name}")
+                return
+
             logger.info(f"Starting agent: {agent.name}")
 
             # 启动 agent 处理任务
@@ -286,6 +395,16 @@ class DeepResearchGraph:
             msg_count = 0
             # 在任务执行期间持续从队列获取消息
             while not task.done():
+                # 定期检查是否已取消
+                if await check_cancelled():
+                    logger.info(f"Research cancelled during agent: {agent.name}")
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+
                 try:
                     msg = await asyncio.wait_for(message_queue.get(), timeout=0.5)
                     msg_count += 1
@@ -317,22 +436,48 @@ class DeepResearchGraph:
 
             logger.info(f"Agent {agent.name} completed. Messages: {msg_count} during, {remaining} remaining")
 
+        # 获取 user_id 用于检查点
+        user_id = state.get("_user_id")
+
+        async def save_checkpoint_async():
+            """异步保存检查点"""
+            if self._save_checkpoint(state, user_id):
+                return {"type": "checkpoint_saved", "phase": state.get("phase", ""), "session_id": session_id}
+            return None
+
         try:
             # Phase 1: Plan
+            if await check_cancelled():
+                yield {"type": "research_cancelled", "message": "研究已取消"}
+                return
             yield {"type": "phase", "phase": "planning", "content": "开始规划研究..."}
             state["phase"] = ResearchPhase.INIT.value
             async for msg in run_agent_with_streaming(self.architect):
                 yield msg
             state["messages"] = []
+            # 保存检查点
+            cp_event = await save_checkpoint_async()
+            if cp_event:
+                yield cp_event
 
             # Phase 2: Research (这是最需要实时输出的阶段)
+            if await check_cancelled():
+                yield {"type": "research_cancelled", "message": "研究已取消"}
+                return
             yield {"type": "phase", "phase": "researching", "content": "开始深度搜索..."}
             state["phase"] = ResearchPhase.RESEARCHING.value
             async for msg in run_agent_with_streaming(self.scout):
                 yield msg
             state["messages"] = []
+            # 保存检查点
+            cp_event = await save_checkpoint_async()
+            if cp_event:
+                yield cp_event
 
             # Phase 3: Analyze
+            if await check_cancelled():
+                yield {"type": "research_cancelled", "message": "研究已取消"}
+                return
             yield {"type": "phase", "phase": "analyzing", "content": "开始数据分析..."}
             state["phase"] = ResearchPhase.ANALYZING.value
             async for msg in run_agent_with_streaming(self.data_analyst):
@@ -341,16 +486,30 @@ class DeepResearchGraph:
             async for msg in run_agent_with_streaming(self.wizard):
                 yield msg
             state["messages"] = []
+            # 保存检查点
+            cp_event = await save_checkpoint_async()
+            if cp_event:
+                yield cp_event
 
             # Phase 4: Write
+            if await check_cancelled():
+                yield {"type": "research_cancelled", "message": "研究已取消"}
+                return
             yield {"type": "phase", "phase": "writing", "content": "开始撰写报告..."}
             state["phase"] = ResearchPhase.WRITING.value
             async for msg in run_agent_with_streaming(self.writer):
                 yield msg
             state["messages"] = []
+            # 保存检查点
+            cp_event = await save_checkpoint_async()
+            if cp_event:
+                yield cp_event
 
             # Phase 5 & 6: Review & Revise/Re-Research Loop
             while state["iteration"] < state["max_iterations"]:
+                if await check_cancelled():
+                    yield {"type": "research_cancelled", "message": "研究已取消"}
+                    return
                 yield {"type": "phase", "phase": "reviewing", "content": f"审核中（第 {state['iteration'] + 1} 轮）..."}
                 state["phase"] = ResearchPhase.REVIEWING.value
                 async for msg in run_agent_with_streaming(self.critic):
@@ -361,6 +520,9 @@ class DeepResearchGraph:
                     break
 
                 if state["phase"] == ResearchPhase.RE_RESEARCHING.value:
+                    if await check_cancelled():
+                        yield {"type": "research_cancelled", "message": "研究已取消"}
+                        return
                     yield {"type": "phase", "phase": "re_researching", "content": "根据审核反馈补充搜索..."}
                     async for msg in run_agent_with_streaming(self.scout):
                         yield msg
@@ -373,6 +535,9 @@ class DeepResearchGraph:
                     state["messages"] = []
 
                 elif state["phase"] == ResearchPhase.REVISING.value:
+                    if await check_cancelled():
+                        yield {"type": "research_cancelled", "message": "研究已取消"}
+                        return
                     yield {"type": "phase", "phase": "revising", "content": "根据反馈修订报告..."}
                     async for msg in run_agent_with_streaming(self.writer):
                         yield msg
@@ -389,6 +554,11 @@ class DeepResearchGraph:
             for i, chart in enumerate(state.get('charts', [])):
                 logger.info(f"[Graph] 图表 {i+1}: id={chart.get('id')}, title={chart.get('title')}, has_echarts={bool(chart.get('echarts_option'))}, has_image={bool(chart.get('image_base64'))}")
 
+            # 更新检查点状态为已完成
+            state["phase"] = ResearchPhase.COMPLETED.value
+            if self.checkpoint_service and session_id:
+                self.checkpoint_service.update_status(session_id, "completed")
+
             yield {
                 "type": "research_complete",
                 "final_report": state.get("final_report", ""),
@@ -401,6 +571,9 @@ class DeepResearchGraph:
 
         except Exception as e:
             logger.error(f"Simplified execution error: {e}")
+            # 更新检查点状态为失败
+            if self.checkpoint_service and session_id:
+                self.checkpoint_service.update_status(session_id, "failed", str(e))
             yield {"type": "error", "content": str(e)}
         finally:
             # 清理队列

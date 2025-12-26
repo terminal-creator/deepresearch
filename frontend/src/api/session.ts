@@ -213,3 +213,12 @@ export function chatWithAttachments(
     ...options,
   })
 }
+
+// ============ 研究控制 API ============
+
+/**
+ * 取消正在进行的研究任务
+ */
+export function cancelResearch(sessionId: string) {
+  return request.post<{ success: boolean; message: string }>(`/research/cancel/${sessionId}`)
+}

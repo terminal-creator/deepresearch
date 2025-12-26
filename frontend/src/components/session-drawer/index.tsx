@@ -75,11 +75,6 @@ export function SessionDrawer({ open, onClose }: SessionDrawerProps) {
     setEditingId(null)
   }
 
-  const handleNewChat = () => {
-    navigate('/chat')
-    onClose()
-  }
-
   if (!isLoggedIn) {
     return (
       <Drawer
@@ -108,11 +103,6 @@ export function SessionDrawer({ open, onClose }: SessionDrawerProps) {
       open={open}
       width={320}
       className="session-drawer"
-      extra={
-        <Button type="primary" size="small" onClick={handleNewChat}>
-          新对话
-        </Button>
-      }
     >
       <Spin spinning={loading}>
         {sessions.length === 0 ? (

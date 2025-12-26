@@ -89,6 +89,50 @@ export default function Index() {
     }
   })
 
+  // 用于取消请求的 ref
+  const readerRef = useRef<ReadableStreamDefaultReader<any> | null>(null)
+  const currentSessionIdRef = useRef<string | null>(null)
+
+  // 停止生成
+  const handleStop = useCallback(async () => {
+    console.log('[handleStop] 用户点击停止按钮')
+
+    // 取消读取流
+    if (readerRef.current) {
+      try {
+        await readerRef.current.cancel()
+        console.log('[handleStop] 读取流已取消')
+      } catch (e) {
+        console.error('[handleStop] 取消读取流失败:', e)
+      }
+      readerRef.current = null
+    }
+
+    // 调用后端取消 API
+    if (currentSessionIdRef.current) {
+      try {
+        await api.session.cancelResearch(currentSessionIdRef.current)
+        console.log('[handleStop] 后端取消请求已发送')
+      } catch (e) {
+        console.error('[handleStop] 调用取消 API 失败:', e)
+      }
+    }
+
+    // 停止当前聊天项的加载状态
+    const loadingItem = chat.list.find(item => item.loading)
+    if (loadingItem) {
+      loadingItem.loading = false
+      if (!loadingItem.content) {
+        loadingItem.content = '⏹️ 已停止生成'
+      }
+    }
+
+    // 更新研究步骤状态
+    setResearchSteps(prev => prev.map(s =>
+      s.status === 'running' ? { ...s, status: 'completed' as const } : s
+    ))
+  }, [chat])
+
   // 轮询检查附件处理状态
   useEffect(() => {
     const pendingAttachments = attachments.filter(
@@ -201,7 +245,14 @@ export default function Index() {
         const reader = res.data.getReader()
         if (!reader) return
 
+        // 存储 reader 和 session ID 用于取消
+        readerRef.current = reader
+        currentSessionIdRef.current = id || null
+
         await read(reader)
+
+        // 清理 reader ref
+        readerRef.current = null
       } catch (error) {
         throw error
       } finally {
@@ -877,6 +928,24 @@ export default function Index() {
                 content: `❌ 错误: ${extractContent(json.content)}`,
                 timestamp: Date.now(),
               })
+            } else if (json.type === 'research_cancelled') {
+              // 研究被取消事件
+              console.log('[前端] 收到 research_cancelled 事件')
+              if (!target.reactSteps) {
+                target.reactSteps = []
+              }
+              target.reactSteps.push({
+                step: target.reactSteps.length + 1,
+                type: 'thought',
+                content: `⏹️ 研究已被用户取消`,
+                timestamp: Date.now(),
+              })
+              target.loading = false
+              if (!target.content) {
+                target.content = '⏹️ 研究已被用户取消'
+              }
+              // 标记所有研究步骤为完成
+              setResearchSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })))
             } else if (json.type === 'chart') {
               // 解包 content（后端将数据包在 content 里）
               const content = json.content || json
@@ -1216,6 +1285,7 @@ export default function Index() {
             loading={loading}
             attachments={attachments}
             onSend={send}
+            onStop={handleStop}
             onUploadAttachment={handleUploadAttachment}
             onRemoveAttachment={handleRemoveAttachment}
           />

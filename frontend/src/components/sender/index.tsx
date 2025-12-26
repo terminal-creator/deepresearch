@@ -1,5 +1,4 @@
 import IconFile from '@/assets/component/file.svg'
-import IconRecorder from '@/assets/component/recorder.svg'
 import IconSend from '@/assets/component/send.svg'
 import { deviceActions, deviceState } from '@/store/device'
 import { Button, Input, Space, Switch, Upload, Tag, message } from 'antd'
@@ -24,6 +23,7 @@ export default function ComSender(
     loading?: boolean
     attachments?: AttachmentInfo[]
     onSend?: (value: string, attachmentIds?: string[]) => void | Promise<void>
+    onStop?: () => void | Promise<void>
     onContract?: () => void
     onUploadAttachment?: (file: File) => Promise<Attachment | null>
     onRemoveAttachment?: (id: string) => void
@@ -32,6 +32,7 @@ export default function ComSender(
   const {
     className,
     onSend,
+    onStop,
     onContract,
     loading,
     attachments = [],
@@ -178,18 +179,33 @@ export default function ComSender(
         </Space>
 
         <Space className="com-sender__actions-right" size={12}>
-          <Button color="default" variant="text" shape="circle">
-            <img src={IconRecorder} />
-          </Button>
-          <Button
-            color="default"
-            variant="text"
-            shape="circle"
-            onClick={send}
-            loading={loading}
-          >
-            <img src={IconSend} />
-          </Button>
+          {loading ? (
+            <Button
+              color="default"
+              variant="filled"
+              shape="circle"
+              onClick={onStop}
+              className="com-sender__stop-btn"
+              title="停止生成"
+            >
+              <span style={{
+                display: 'inline-block',
+                width: 12,
+                height: 12,
+                backgroundColor: '#ff4d4f',
+                borderRadius: 2,
+              }} />
+            </Button>
+          ) : (
+            <Button
+              color="default"
+              variant="text"
+              shape="circle"
+              onClick={send}
+            >
+              <img src={IconSend} />
+            </Button>
+          )}
         </Space>
       </div>
     </div>

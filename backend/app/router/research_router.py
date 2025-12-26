@@ -7,12 +7,16 @@ import logging
 
 from service import ResearchService, ServiceConfig
 from service.dr_g import serialize_event  # 导入序列化函数
+from core.redis_client import cache  # 导入 Redis 缓存
 
 # V2 导入
 from service.deep_research_v2.service import DeepResearchV2Service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ResearchRouter")
+
+# 取消标志 key 前缀
+CANCEL_KEY_PREFIX = "research:cancel:"
 
 # 创建路由实例
 router = APIRouter(prefix="/research", tags=["research"])
@@ -282,3 +286,180 @@ async def test_wizard_endpoint():
             "error": str(e),
             "traceback": traceback.format_exc()
         }
+
+
+@router.post("/cancel/{session_id}", status_code=HTTP_200_OK)
+async def cancel_research(session_id: str):
+    """
+    取消正在进行的研究任务
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        取消确认信息
+    """
+    try:
+        # 设置取消标志到 Redis，有效期 5 分钟
+        cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+        cache.set(cancel_key, {"cancelled": True}, expire=300)
+        logger.info(f"Research cancelled for session: {session_id}")
+        return {"success": True, "message": "Research cancellation requested"}
+    except Exception as e:
+        logger.error(f"Failed to cancel research: {e}")
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+def is_research_cancelled(session_id: str) -> bool:
+    """
+    检查研究任务是否已被取消
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        是否已取消
+    """
+    cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+    result = cache.get(cancel_key)
+    return result is not None and result.get("cancelled", False)
+
+
+def clear_cancel_flag(session_id: str):
+    """
+    清除取消标志（研究开始时调用）
+
+    Args:
+        session_id: 会话ID
+    """
+    cancel_key = f"{CANCEL_KEY_PREFIX}{session_id}"
+    cache.delete(cancel_key)
+
+
+# ============ 检查点 API ============
+
+@router.get("/checkpoint/{session_id}", status_code=HTTP_200_OK)
+async def get_checkpoint(session_id: str):
+    """
+    获取研究检查点信息
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        检查点信息（不含完整状态）
+    """
+    try:
+        from service.checkpoint_service import get_checkpoint_service
+        checkpoint_service = get_checkpoint_service()
+        info = checkpoint_service.get_checkpoint_info(session_id)
+        if info:
+            return {"success": True, "checkpoint": info}
+        return {"success": False, "message": "No checkpoint found"}
+    except Exception as e:
+        logger.error(f"Failed to get checkpoint: {e}")
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get("/checkpoints", status_code=HTTP_200_OK)
+async def list_checkpoints(
+    status: Optional[str] = Query(None, description="过滤状态: running/paused/completed/failed"),
+    limit: int = Query(20, ge=1, le=100, description="返回数量限制")
+):
+    """
+    列出研究检查点
+
+    Args:
+        status: 状态过滤
+        limit: 返回数量限制
+
+    Returns:
+        检查点列表
+    """
+    try:
+        from service.checkpoint_service import get_checkpoint_service
+        checkpoint_service = get_checkpoint_service()
+        checkpoints = checkpoint_service.list_checkpoints(status=status, limit=limit)
+        return {"success": True, "checkpoints": checkpoints, "total": len(checkpoints)}
+    except Exception as e:
+        logger.error(f"Failed to list checkpoints: {e}")
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.delete("/checkpoint/{session_id}", status_code=HTTP_200_OK)
+async def delete_checkpoint(session_id: str):
+    """
+    删除研究检查点
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        删除结果
+    """
+    try:
+        from service.checkpoint_service import get_checkpoint_service
+        checkpoint_service = get_checkpoint_service()
+        success = checkpoint_service.delete_checkpoint(session_id)
+        if success:
+            return {"success": True, "message": "Checkpoint deleted"}
+        return {"success": False, "message": "Checkpoint not found"}
+    except Exception as e:
+        logger.error(f"Failed to delete checkpoint: {e}")
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/resume/{session_id}", status_code=HTTP_200_OK)
+async def resume_research(session_id: str):
+    """
+    恢复研究任务（从检查点）
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        流式响应，从检查点继续研究
+    """
+    try:
+        from service.checkpoint_service import get_checkpoint_service
+        checkpoint_service = get_checkpoint_service()
+        info = checkpoint_service.get_checkpoint_info(session_id)
+
+        if not info:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="No checkpoint found for this session"
+            )
+
+        if info.get("status") == "completed":
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Research already completed"
+            )
+
+        # 使用 V2 服务恢复
+        service_v2 = get_research_service_v2()
+
+        async def generate_sse():
+            try:
+                async for event in service_v2.research(
+                    query=info.get("query", ""),
+                    session_id=session_id,
+                    resume=True
+                ):
+                    yield event
+            except Exception as e:
+                logger.error(f"Resume research error: {e}")
+                error_event = serialize_event({"type": "error", "content": str(e)})
+                yield f"data: {error_event}\n\n"
+
+        return StreamingResponse(
+            generate_sse(),
+            media_type="text/event-stream"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resume research: {e}")
+        raise HTTPException(status_code=HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

@@ -3,6 +3,8 @@ import IconCareer from '@/assets/layout/career.svg'
 import IconHistory from '@/assets/layout/history.svg'
 import IconHome from '@/assets/layout/home.svg'
 import IconKnowledge from '@/assets/layout/knowledge.svg'
+import IconMemory from '@/assets/layout/memory.svg'
+import IconDatabase from '@/assets/layout/database.svg'
 import IconNewChat from '@/assets/layout/newchat.svg'
 import IconNews from '@/assets/layout/news.svg'
 import IconPolicy from '@/assets/layout/policy.svg'
@@ -38,10 +40,22 @@ export function Nav() {
         onClick: () => setSessionDrawerOpen(true),
       },
       {
+        key: 'memory',
+        label: '记忆库',
+        icon: IconMemory,
+        href: '/memory',
+      },
+      {
         key: 'knowledge',
         label: '知识库',
         icon: IconKnowledge,
         href: '/knowledge',
+      },
+      {
+        key: 'database',
+        label: '数据库',
+        icon: IconDatabase,
+        href: '/database',
       },
       {
         key: 'news',
@@ -61,12 +75,13 @@ export function Nav() {
         icon: IconBid,
         href: '#',
       },
-      {
-        key: 'career',
-        label: '职业规划',
-        icon: IconCareer,
-        href: '#',
-      },
+      // 暂时隐藏职业规划
+      // {
+      //   key: 'career',
+      //   label: '职业规划',
+      //   icon: IconCareer,
+      //   href: '#',
+      // },
     ],
     [],
   )

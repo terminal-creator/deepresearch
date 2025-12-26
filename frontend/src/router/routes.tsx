@@ -1,3 +1,4 @@
+import { AuthGuard } from '@/components/auth-guard'
 import { BaseLayout } from '@/layout/base'
 import NotFound from '@/pages/404'
 import LoginPage from '@/pages/auth/login'
@@ -5,6 +6,8 @@ import Chat from '@/pages/chat'
 import NewChat from '@/pages/chat/newchat'
 import Index from '@/pages/index'
 import KnowledgePage from '@/pages/knowledge'
+import MemoryPage from '@/pages/memory'
+import DatabasePage from '@/pages/database'
 import {
   Navigate,
   Outlet,
@@ -43,6 +46,14 @@ export const routes: IRouteObject[] = [
     Component: KnowledgePage,
   },
   {
+    path: '/memory',
+    Component: MemoryPage,
+  },
+  {
+    path: '/database',
+    Component: DatabasePage,
+  },
+  {
     path: '/404',
     Component: NotFound,
     pure: true,
@@ -58,9 +69,11 @@ export const router = createBrowserRouter(
     {
       path: '/',
       element: (
-        <BaseLayout>
-          <Outlet />
-        </BaseLayout>
+        <AuthGuard>
+          <BaseLayout>
+            <Outlet />
+          </BaseLayout>
+        </AuthGuard>
       ),
       children: routes,
     },

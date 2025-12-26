@@ -1,15 +1,18 @@
 import * as api from '@/api'
 import { authActions } from '@/store/auth'
-import { LockOutlined, UserOutlined } from '@ant-design/icons'
-import { Button, Card, Form, Input, message, Tabs } from 'antd'
+import { LockOutlined, MailOutlined, UserOutlined } from '@ant-design/icons'
+import { Button, Form, Input, message } from 'antd'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import styles from './login.module.scss'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('login')
+  const [isLogin, setIsLogin] = useState(true)
+
+  const from = (location.state as any)?.from?.pathname || '/chat'
 
   const onLogin = async (values: { username: string; password: string }) => {
     setLoading(true)
@@ -17,7 +20,7 @@ export default function LoginPage() {
       const { data } = await api.auth.login(values)
       authActions.login(data.access_token, data.user)
       message.success('登录成功')
-      navigate('/chat')
+      navigate(from, { replace: true })
     } catch (error: any) {
       message.error(error?.response?.data?.detail || '登录失败')
     } finally {
@@ -45,7 +48,7 @@ export default function LoginPage() {
       })
       authActions.login(data.access_token, data.user)
       message.success('注册成功')
-      navigate('/chat')
+      navigate(from, { replace: true })
     } catch (error: any) {
       message.error(error?.response?.data?.detail || '注册失败')
     } finally {
@@ -55,135 +58,183 @@ export default function LoginPage() {
 
   return (
     <div className={styles['login-page']}>
-      <Card className={styles['login-card']}>
-        <div className={styles['login-header']}>
-          <h1>行业信息助手</h1>
-          <p>基于 AI Agent 的智能信息检索与分析平台</p>
+      <div className={styles['login-container']}>
+        {/* 左侧品牌区域 */}
+        <div className={styles['brand-section']}>
+          <div className={styles['brand-content']}>
+            <div className={styles['brand-icon']}>
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M24 4L4 14V34L24 44L44 34V14L24 4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                <path d="M24 4V24M24 24L4 14M24 24L44 14M24 24V44" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h1 className={styles['brand-title']}>行业信息助手</h1>
+            <p className={styles['brand-subtitle']}>Intelligence Assistant</p>
+            <div className={styles['brand-features']}>
+              <div className={styles['feature-item']}>
+                <span className={styles['feature-icon']} />
+                <span>AI 驱动的深度研究</span>
+              </div>
+              <div className={styles['feature-item']}>
+                <span className={styles['feature-icon']} />
+                <span>多维度数据分析</span>
+              </div>
+              <div className={styles['feature-item']}>
+                <span className={styles['feature-icon']} />
+                <span>智能报告生成</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          centered
-          items={[
-            {
-              key: 'login',
-              label: '登录',
-              children: (
-                <Form
-                  name="login"
-                  onFinish={onLogin}
-                  autoComplete="off"
-                  size="large"
+        {/* 右侧表单区域 */}
+        <div className={styles['form-section']}>
+          <div className={styles['form-container']}>
+            <div className={styles['form-header']}>
+              <h2>{isLogin ? '欢迎回来' : '创建账户'}</h2>
+              <p>{isLogin ? '登录您的账户以继续' : '注册新账户开始使用'}</p>
+            </div>
+
+            {isLogin ? (
+              <Form
+                name="login"
+                onFinish={onLogin}
+                autoComplete="off"
+                layout="vertical"
+                requiredMark={false}
+              >
+                <Form.Item
+                  name="username"
+                  rules={[{ required: true, message: '请输入用户名' }]}
                 >
-                  <Form.Item
-                    name="username"
-                    rules={[{ required: true, message: '请输入用户名' }]}
-                  >
-                    <Input
-                      prefix={<UserOutlined />}
-                      placeholder="用户名或邮箱"
-                    />
-                  </Form.Item>
+                  <Input
+                    prefix={<UserOutlined className={styles['input-icon']} />}
+                    placeholder="用户名或邮箱"
+                    size="large"
+                    className={styles['form-input']}
+                  />
+                </Form.Item>
 
-                  <Form.Item
-                    name="password"
-                    rules={[{ required: true, message: '请输入密码' }]}
-                  >
-                    <Input.Password
-                      prefix={<LockOutlined />}
-                      placeholder="密码"
-                    />
-                  </Form.Item>
-
-                  <Form.Item>
-                    <Button
-                      type="primary"
-                      htmlType="submit"
-                      loading={loading}
-                      block
-                    >
-                      登录
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-            {
-              key: 'register',
-              label: '注册',
-              children: (
-                <Form
-                  name="register"
-                  onFinish={onRegister}
-                  autoComplete="off"
-                  size="large"
+                <Form.Item
+                  name="password"
+                  rules={[{ required: true, message: '请输入密码' }]}
                 >
-                  <Form.Item
-                    name="username"
-                    rules={[
-                      { required: true, message: '请输入用户名' },
-                      { min: 3, message: '用户名至少3个字符' },
-                    ]}
-                  >
-                    <Input
-                      prefix={<UserOutlined />}
-                      placeholder="用户名"
-                    />
-                  </Form.Item>
+                  <Input.Password
+                    prefix={<LockOutlined className={styles['input-icon']} />}
+                    placeholder="密码"
+                    size="large"
+                    className={styles['form-input']}
+                  />
+                </Form.Item>
 
-                  <Form.Item
-                    name="email"
-                    rules={[
-                      { required: true, message: '请输入邮箱' },
-                      { type: 'email', message: '请输入有效的邮箱地址' },
-                    ]}
+                <Form.Item>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={loading}
+                    block
+                    size="large"
+                    className={styles['submit-btn']}
                   >
-                    <Input
-                      prefix={<UserOutlined />}
-                      placeholder="邮箱"
-                    />
-                  </Form.Item>
+                    登录
+                  </Button>
+                </Form.Item>
+              </Form>
+            ) : (
+              <Form
+                name="register"
+                onFinish={onRegister}
+                autoComplete="off"
+                layout="vertical"
+                requiredMark={false}
+              >
+                <Form.Item
+                  name="username"
+                  rules={[
+                    { required: true, message: '请输入用户名' },
+                    { min: 3, message: '用户名至少3个字符' },
+                  ]}
+                >
+                  <Input
+                    prefix={<UserOutlined className={styles['input-icon']} />}
+                    placeholder="用户名"
+                    size="large"
+                    className={styles['form-input']}
+                  />
+                </Form.Item>
 
-                  <Form.Item
-                    name="password"
-                    rules={[
-                      { required: true, message: '请输入密码' },
-                      { min: 6, message: '密码至少6个字符' },
-                    ]}
+                <Form.Item
+                  name="email"
+                  rules={[
+                    { required: true, message: '请输入邮箱' },
+                    { type: 'email', message: '请输入有效的邮箱地址' },
+                  ]}
+                >
+                  <Input
+                    prefix={<MailOutlined className={styles['input-icon']} />}
+                    placeholder="邮箱"
+                    size="large"
+                    className={styles['form-input']}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="password"
+                  rules={[
+                    { required: true, message: '请输入密码' },
+                    { min: 6, message: '密码至少6个字符' },
+                  ]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined className={styles['input-icon']} />}
+                    placeholder="密码"
+                    size="large"
+                    className={styles['form-input']}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="confirmPassword"
+                  rules={[{ required: true, message: '请确认密码' }]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined className={styles['input-icon']} />}
+                    placeholder="确认密码"
+                    size="large"
+                    className={styles['form-input']}
+                  />
+                </Form.Item>
+
+                <Form.Item>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={loading}
+                    block
+                    size="large"
+                    className={styles['submit-btn']}
                   >
-                    <Input.Password
-                      prefix={<LockOutlined />}
-                      placeholder="密码"
-                    />
-                  </Form.Item>
+                    注册
+                  </Button>
+                </Form.Item>
+              </Form>
+            )}
 
-                  <Form.Item
-                    name="confirmPassword"
-                    rules={[{ required: true, message: '请确认密码' }]}
-                  >
-                    <Input.Password
-                      prefix={<LockOutlined />}
-                      placeholder="确认密码"
-                    />
-                  </Form.Item>
-
-                  <Form.Item>
-                    <Button
-                      type="primary"
-                      htmlType="submit"
-                      loading={loading}
-                      block
-                    >
-                      注册
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-          ]}
-        />
-      </Card>
+            <div className={styles['form-footer']}>
+              <span className={styles['switch-text']}>
+                {isLogin ? '还没有账户？' : '已有账户？'}
+              </span>
+              <button
+                type="button"
+                className={styles['switch-btn']}
+                onClick={() => setIsLogin(!isLogin)}
+              >
+                {isLogin ? '立即注册' : '返回登录'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

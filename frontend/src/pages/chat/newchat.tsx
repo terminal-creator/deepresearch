@@ -83,8 +83,9 @@ export default function NewChat() {
     let sessionId = pendingSessionId
     if (!sessionId) {
       try {
-        const { data } = await api.session.create()
-        sessionId = data.session_id
+        // 使用新的 session API，这样会话会出现在对话历史中
+        const { data } = await api.session.createSession({ title: '新对话' })
+        sessionId = data.id
         setPendingSessionId(sessionId)
       } catch (e) {
         message.error('创建会话失败')
@@ -149,8 +150,19 @@ export default function NewChat() {
     // 如果已经有预创建的会话（因为上传了附件），直接使用它
     let sessionId = pendingSessionId
     if (!sessionId) {
-      const { data } = await api.session.create()
-      sessionId = data.session_id
+      // 使用新的 session API，这样会话会出现在对话历史中
+      // 用问题的前20个字符作为标题
+      const title = msg.length > 20 ? msg.slice(0, 20) + '...' : msg
+      const { data } = await api.session.createSession({ title })
+      sessionId = data.id
+    } else {
+      // 如果已有会话，更新标题
+      try {
+        const title = msg.length > 20 ? msg.slice(0, 20) + '...' : msg
+        await api.session.updateSession(sessionId, { title })
+      } catch (e) {
+        console.error('更新会话标题失败', e)
+      }
     }
 
     setPageTransport(transportToChatEnter, {

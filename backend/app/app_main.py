@@ -11,11 +11,13 @@ from router.session_router import router as session_router
 from router.knowledge_router import router as knowledge_router
 from router.attachment_router import router as attachment_router
 from router.memory_router import router as memory_router
+from router.database_router import router as database_router
 from core.database import engine, Base
 # 导入所有模型以确保它们被注册
 from models import (
     User, ChatSession, ChatMessage, ChatAttachment, LongTermMemory,
-    KnowledgeBase, Document, IndustryStats, CompanyData, PolicyData
+    KnowledgeBase, Document, IndustryStats, CompanyData, PolicyData,
+    ResearchCheckpoint
 )
 
 # 创建所有数据表（如果不存在）
@@ -42,6 +44,7 @@ app.include_router(session_router)
 app.include_router(knowledge_router)
 app.include_router(attachment_router)
 app.include_router(memory_router)
+app.include_router(database_router)
 app.include_router(document_router)
 app.include_router(search_router)
 app.include_router(chat_router)

@@ -83,7 +83,9 @@ class DeepResearchV2Service:
         self,
         query: str,
         session_id: Optional[str] = None,
-        kb_name: Optional[str] = None
+        kb_name: Optional[str] = None,
+        resume: bool = False,
+        user_id: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         执行深度研究（SSE 流式输出）
@@ -92,6 +94,8 @@ class DeepResearchV2Service:
             query: 用户问题
             session_id: 会话ID（可选）
             kb_name: 知识库名称（可选）
+            resume: 是否从检查点恢复
+            user_id: 用户ID（用于检查点）
 
         Yields:
             SSE 格式的事件字符串
@@ -99,10 +103,13 @@ class DeepResearchV2Service:
         if not session_id:
             session_id = str(uuid.uuid4())
 
-        logger.info(f"Starting research for session {session_id}: {query[:50]}...")
+        if resume:
+            logger.info(f"Resuming research for session {session_id}")
+        else:
+            logger.info(f"Starting research for session {session_id}: {query[:50]}...")
 
         try:
-            async for event in self.graph.run(query, session_id):
+            async for event in self.graph.run(query, session_id, resume=resume, user_id=user_id):
                 # 转换为 SSE 格式
                 yield self._format_sse(event)
 
